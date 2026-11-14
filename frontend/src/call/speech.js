@@ -67,22 +67,31 @@ export function stopSpeaking() {
  * Otherwise the browser's voices; a Kazakh line without a Kazakh voice is read by a Russian voice
  * (same alphabet), and only a browser with no speech at all shows the line silently.
  */
-export async function speak(text, lang) {
+// Two people on the line: the caller and the client (an older person) get different voices.
+const CLAUDE_VOICE = { caller: "glassy", client: "airy" };
+const BROWSER_STYLE = { caller: { pitch: 1.0, rate: 1.0 }, client: { pitch: 1.15, rate: 0.88 } };
+
+export async function speak(text, lang, who = "caller") {
   const tts = await claudeTts();
   if (tts) {
-    try { await tts.speak(text, { language: lang }); return; }
+    try { await tts.speak(text, { language: lang, voice: CLAUDE_VOICE[who] }); return; }
     catch (e) {
       if (e?.code === "viewer_stopped") return;
-      try { await tts.speak(text); return; } catch { /* fall back to the browser */ }
+      try { await tts.speak(text, { voice: CLAUDE_VOICE[who] }); return; } catch { /* fall back to the browser */ }
     }
   }
   const synth = window.speechSynthesis;
   const voices = await browserVoices();
   if (!synth || !voices.length) return sleep(Math.min(6000, 600 + text.length * 55));
-  const pick = (p) => voices.find((v) => v.lang?.toLowerCase().replace("_", "-").startsWith(p));
-  const voice = pick(lang) || pick("ru") || voices[0];
+  const of = (p) => voices.filter((v) => v.lang?.toLowerCase().replace("_", "-").startsWith(p));
+  const pool = of(lang).length ? of(lang) : of("ru").length ? of("ru") : voices;
+  // prefer natural-sounding voices (Chrome's "Google …", Edge's "… Online (Natural)") over robotic ones
+  const natural = pool.filter((v) => /natural|online|google|neural|premium|enhanced/i.test(v.name));
+  const ranked = [...natural, ...pool.filter((v) => !natural.includes(v))];
+  const voice = who === "client" && ranked.length > 1 ? ranked[1] : ranked[0];
   const u = new SpeechSynthesisUtterance(text);
-  u.voice = voice; u.lang = voice.lang; u.rate = 0.95;
+  u.voice = voice; u.lang = voice.lang;
+  u.pitch = BROWSER_STYLE[who].pitch; u.rate = BROWSER_STYLE[who].rate;
   await new Promise((resolve) => {
     let done = false;
     const finish = () => { if (!done) { done = true; resolve(); } };

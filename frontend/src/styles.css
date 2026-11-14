@@ -200,3 +200,7 @@ h4.first { margin-top: 6px; }
 .live-btn { margin-top: 8px; border: 1px dashed var(--teal); background: var(--teal-soft); color: var(--ink); border-radius: 12px; padding: 10px; font-weight: 600; }
 .truth { font-size: 13px; font-weight: 600; margin: 4px 0; padding: 6px 10px; border-radius: 8px; }
 .truth.ok { background: var(--green-soft); color: var(--green-ink); } .truth.bad { background: var(--red-soft); color: var(--red-ink); }
+.strip .turn { display: grid; gap: 1px; padding: 4px 8px; border-radius: 10px; background: rgba(255,255,255,.12); }
+.strip .turn.client { justify-self: end; text-align: right; background: rgba(255,255,255,.22); }
+.strip .turn i { font-style: normal; font-size: 10.5px; opacity: .8; text-transform: uppercase; letter-spacing: .04em; }
+.strip .turn.speaking { outline: 1px dashed rgba(255,255,255,.7); }

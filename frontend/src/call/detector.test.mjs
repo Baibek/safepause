@@ -38,6 +38,9 @@ test("negation is scoped, split and cross-recogniser", () => {
   assert.equal(run(ru("никому не сообщайте код", 0), ru("а теперь назовите код из смс", 20000)).level, "HIGH");
 });
 
+test("a 'safe accounts do not exist' warning is not a request", () =>
+  assert.equal(run(ru("безопасных счетов не существует")).hits.length, 0));
+
 test("no false alarms on family talk", () => {
   assert.ok(!run(ru("мам не говори папе")).stages.has("AUTHORITY"));
   assert.equal(run(ru("мам какой пароль от вайфая")).level, "LOW");
@@ -55,13 +58,19 @@ test("Claude merge: one step up at most, never down", async () => {
   assert.equal(merge("LOW", null), "LOW");
 });
 
-test("100 demo calls (50 scam, 50 real staff): every scam HIGH, no real call HIGH", () => {
+test("100 demo calls as dialogs (caller + client replies): every scam HIGH, no real call HIGH", () => {
   const load = (f) => JSON.parse(readFileSync(new URL(`../../../shared/${f}`, import.meta.url)));
+  const replies = load("demo_replies.json");
   for (const [file, scam] of [["demo_calls_scam.json", true], ["demo_calls_legit.json", false]]) {
     const list = load(file);
     assert.equal(list.length, 50);
     for (const c of list) {
-      const level = run(...c.lines.map((t, i) => ({ text: t, atMs: i * 4000, source: c.lang }))).level;
+      let t = 0;
+      const phrases = c.lines.flatMap((line, i) => [
+        { text: line, atMs: (t += 4000), source: c.lang },
+        ...(replies[c.id]?.[i] ? [{ text: replies[c.id][i], atMs: (t += 2000), source: c.lang }] : []),
+      ]);
+      const level = run(...phrases).level;
       if (scam) assert.equal(level, "HIGH", c.id); else assert.notEqual(level, "HIGH", c.id);
     }
   }

@@ -2,19 +2,25 @@ import React, { useEffect, useRef, useState } from "react";
 import rulesJson from "../../../shared/call_rules.json";
 import scamCalls from "../../../shared/demo_calls_scam.json";
 import legitCalls from "../../../shared/demo_calls_legit.json";
+import replies from "../../../shared/demo_replies.json";
 import { ScamDetector, loadRules } from "./detector.js";
 import { startListening, speak, stopSpeaking } from "./speech.js";
 import { askClaude, merge } from "./analyst.js";
 
 const RULES = loadRules(rulesJson);
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
-const asScenario = (label) => (c) => ({ ...c, label, kind: "phone" });
+/** The call as a dialog: the caller's lines with the client's replies in between. */
+const turnsOf = (c) => c.lines.flatMap((text, i) => [
+  { who: "caller", text },
+  ...(replies[c.id]?.[i] ? [{ who: "client", text: replies[c.id][i] }] : []),
+]);
+const asScenario = (label) => (c) => ({ ...c, label, kind: "phone", turns: turnsOf(c) });
 const SCAM = [
-  { ...scamCalls[1], id: "x02-video", label: "scam", kind: "whatsapp", caller: "WhatsApp · " + scamCalls[1].caller, title: "WhatsApp видео: " + scamCalls[1].title },
+  { ...scamCalls[1], id: "x02-video", label: "scam", kind: "whatsapp", caller: "WhatsApp · " + scamCalls[1].caller, title: "WhatsApp видео: " + scamCalls[1].title, turns: turnsOf(scamCalls[1]) },
   ...scamCalls.map(asScenario("scam")),
 ];
 const LEGIT = legitCalls.map(asScenario("legit"));
-const LIVE = { id: "live", label: null, kind: "phone", caller: "Нақты қоңырау / Реальный звонок", lines: null };
+const LIVE = { id: "live", label: null, kind: "phone", caller: "Нақты қоңырау / Реальный звонок", turns: null };
 
 const T = {
   kk: {
@@ -26,6 +32,7 @@ const T = {
     lv: { LOW: "Қауіп белгісі жоқ", SUSPICIOUS: "Күдікті", HIGH: "АЛАЯҚТЫҚ БЕЛГІЛЕРІ" },
     warnTitle: "Бұл алаяқ болуы әбден мүмкін",
     advice: "Тұтқаны қойыңыз. Ешқандай кодты айтпаңыз, ақша аудармаңыз. Банкке картаның артындағы нөмірмен өзіңіз қоңырау шалыңыз.",
+    who: { caller: "Қоңырау шалушы", client: "Клиент" },
     ok: "Түсіндім", end: "Аяқтау", summary: "Қоңырау қорытындысы", why: "Неге", transcript: "Әңгіме мәтіні", back: "Басқа сценарий",
     micError: "Микрофон қолжетімсіз. Chrome-да ашып, микрофонға рұқсат беріңіз (немесе демо сценарийді таңдаңыз).",
     claude: "Claude пікірі", manual: "Бетті қолмен тексеру", next: "Келесі", yes: "Иә", no: "Жоқ",
@@ -43,6 +50,7 @@ const T = {
     lv: { LOW: "Признаков опасности нет", SUSPICIOUS: "Подозрительно", HIGH: "ПРИЗНАКИ МОШЕННИЧЕСТВА" },
     warnTitle: "Очень похоже на мошенника",
     advice: "Положите трубку. Не называйте никаких кодов и не переводите деньги. Сами позвоните в банк по номеру на обороте карты.",
+    who: { caller: "Звонящий", client: "Клиент" },
     ok: "Понятно", end: "Завершить", summary: "Итог звонка", why: "Почему", transcript: "Текст разговора", back: "Другой сценарий",
     micError: "Микрофон недоступен. Откройте в Chrome и разрешите микрофон (или выберите демо-сценарий).",
     claude: "Мнение Claude", manual: "Проверить лицо вручную", next: "Далее", yes: "Да", no: "Нет",
@@ -79,7 +87,8 @@ export default function CallGuard({ lang, onState }) {
   const det = useRef(null), mic = useRef(null), run = useRef(0), stagesAsked = useRef(0);
 
   const level = assessment ? merge(assessment.level, llm?.level) : "LOW";
-  useEffect(() => { onState?.({ screen, assessment, llm, level, lines, scenario: sc }); }, [screen, assessment, llm, level, lines, sc]);
+  const linesText = lines.map((l) => l.text);
+  useEffect(() => { onState?.({ screen, assessment, llm, level, lines: linesText, scenario: sc }); }, [screen, assessment, llm, level, lines, sc]);
   useEffect(() => {
     if (screen !== "call") return;
     const id = setInterval(() => setSecs((s) => s + 1), 1000);
@@ -92,14 +101,15 @@ export default function CallGuard({ lang, onState }) {
   }, [level, assessment]);
   useEffect(() => () => stopAll(), []);
 
-  const feed = (text, source) => {
+  const feed = (text, source, who = "caller") => {
     if (!text) return;
+    // the microphone hears both people, so the detector reads the whole conversation
     const a = det.current.add({ text, atMs: Date.now(), source });
     setLines((l) => {
-      const next = [...l, text];
+      const next = [...l, { who, text }];
       if (a.stages.size > stagesAsked.current) {           // a new stage: ask Claude once more
         stagesAsked.current = a.stages.size;
-        askClaude(next.slice(-30), lang).then((v) => v && setLlm(v));
+        askClaude(next.slice(-30).map((x) => x.text), lang).then((v) => v && setLlm(v));
       }
       return next;
     });
@@ -117,21 +127,21 @@ export default function CallGuard({ lang, onState }) {
 
   const listen = async () => {
     setListening(true);
-    if (sc.lines) {                                            // scripted call read aloud
+    if (sc.turns) {                                            // scripted dialog read aloud, two voices
       const my = ++run.current;
-      for (const p of sc.lines) {
+      for (const turn of sc.turns) {
         if (run.current !== my) return;
-        setPartial(p);
-        await speak(p, sc.lang);
+        setPartial(turn);
+        await speak(turn.text, sc.lang, turn.who);
         if (run.current !== my) return;
         setPartial("");
-        feed(p, sc.lang);
+        feed(turn.text, sc.lang, turn.who);
         await new Promise((r) => setTimeout(r, 500));
       }
     } else {                                                   // live microphone
       const handle = await startListening(liveLang, {
         onPartial: setPartial,
-        onFinal: (text) => { setPartial(""); feed(text, liveLang); },
+        onFinal: (text) => { setPartial(""); feed(text, liveLang, "caller"); },
         onError: () => { setError(t.micError); setListening(false); },
       });
       if (!handle) { setError(t.micError); setListening(false); return; }
@@ -192,7 +202,7 @@ export default function CallGuard({ lang, onState }) {
       {reasons.length > 0 && <><span className="lbl">{t.why}</span><ul className="why">{reasons.map((r, i) => <li key={i}>{r}</li>)}</ul></>}
       {llm && <p className="hint">{t.claude}: {llm.reasons.join("; ")}</p>}
       <span className="lbl">{t.transcript}</span>
-      <div className="chat small">{lines.length ? lines.map((l, i) => <div key={i} className={"msg bot" + (flagged.has(l) ? " hot" : "")}>{cap(l)}</div>) : <p className="hint">—</p>}</div>
+      <div className="chat small">{lines.length ? lines.map((l, i) => <div key={i} className={"msg " + (l.who === "client" ? "client" : "bot") + (flagged.has(l.text) ? " hot" : "")}>{cap(l.text)}</div>) : <p className="hint">—</p>}</div>
       <button className="primary" onClick={reset}>{t.back}</button>
     </div>
   );
@@ -210,8 +220,10 @@ export default function CallGuard({ lang, onState }) {
       {listening && !warn && !manual && (
         <div className={"strip " + level.toLowerCase()}>
           <b>{t.listening} · {t.lv[level]}</b>
-          {lines.slice(-3).map((l, i) => <span key={i}>{cap(l)}</span>)}
-          <em>{partial || (sc.lines ? "" : t.partialHint)}</em>
+          {lines.slice(-4).map((l, i) => <span key={i} className={"turn " + l.who}><i>{t.who[l.who]}</i>{cap(l.text)}</span>)}
+          {partial && typeof partial === "object"
+            ? <span className={"turn speaking " + partial.who}><i>{t.who[partial.who]} 🔊</i>{partial.text}</span>
+            : <em>{partial || (sc.turns ? "" : t.partialHint)}</em>}
         </div>
       )}
       {!listening && <p className="hint light">{t.noSpeech}</p>}
