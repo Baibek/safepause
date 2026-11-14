@@ -12,19 +12,24 @@
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
     <application
+        android:name=".SafePauseApp"
         android:label="@string/app_name"
         android:allowBackup="false"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
         <activity
-            android:name=".probe.ProbeActivity"
+            android:name=".ui.MainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".probe.ProbeActivity"
+            android:exported="false" />
 
         <activity
             android:name=".ui.SummaryActivity"

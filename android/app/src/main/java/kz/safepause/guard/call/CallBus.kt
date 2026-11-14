@@ -5,7 +5,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kz.safepause.detector.Assessment
 import kz.safepause.detector.Phrase
 
-enum class CallKind { CELLULAR, WHATSAPP }
+enum class CallKind { CELLULAR, WHATSAPP, SAMPLE }
 
 data class CallInfo(val kind: CallKind, val number: String?, val startedAt: Long)
 
