@@ -6,7 +6,7 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import kz.safepause.guard.call.CallBus
 import kz.safepause.guard.call.CallWatcher
-import kz.safepause.guard.call.ListenService
+import kz.safepause.guard.call.CallEndHandler
 import kz.safepause.guard.call.Overlay
 import kz.safepause.guard.call.WHATSAPP_PACKAGES
 
@@ -24,7 +24,7 @@ class GuardAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         if (!endHookRegistered) {
             endHookRegistered = true
-            CallBus.onCallEnded { _, _, _ -> ListenService.stop(applicationContext) }
+            CallBus.onCallEnded { info, a, t -> CallEndHandler.handle(applicationContext, info, a, t) }
         }
         watcher = CallWatcher(this).also { it.start() }
         overlay = Overlay(this, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY).also { it.attach() }

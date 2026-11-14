@@ -22,6 +22,12 @@ object Strings {
         "check_face" to "Бетті тексеру",
         "notif_channel" to "Қоңырауды қорғау",
         "notif_listening" to "Қоңырау тыңдалып жатыр. Дыбыс телефоннан шықпайды.",
+        "summary_title" to "Қоңырау қорытындысы",
+        "summary_reasons" to "Неге",
+        "summary_transcript" to "Әңгіме мәтіні",
+        "summary_no_transcript" to "Мәтін сақталмаған («Мәтінді сақтау» өшірулі).",
+        "summary_delete" to "Жою",
+        "summary_missing" to "Бұл қоңырау табылмады.",
     )
     private val ru = mapOf(
         "bubble" to "SafePause: слушать?",
@@ -41,6 +47,12 @@ object Strings {
         "check_face" to "Проверить лицо",
         "notif_channel" to "Защита звонка",
         "notif_listening" to "Звонок прослушивается. Звук не покидает телефон.",
+        "summary_title" to "Итог звонка",
+        "summary_reasons" to "Почему",
+        "summary_transcript" to "Текст разговора",
+        "summary_no_transcript" to "Текст не сохранён (выключено «Сохранять текст»).",
+        "summary_delete" to "Удалить",
+        "summary_missing" to "Звонок не найден.",
     )
 
     val keys: Set<String> get() = kk.keys + ru.keys
