@@ -17,6 +17,12 @@ android {
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
     buildFeatures { compose = true }
+    flavorDimensions += "sms"
+    productFlavors {
+        create("full") { dimension = "sms" }
+        // no SEND_SMS: fewer Play Protect blocks when sideloading; guardian SMS is not sent
+        create("lite") { dimension = "sms"; applicationIdSuffix = ".lite"; versionNameSuffix = "-lite" }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

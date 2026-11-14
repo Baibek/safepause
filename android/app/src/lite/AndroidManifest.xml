@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- "lite" build: no SMS permission, so Google Play Protect is less likely to block a sideloaded install.
+     The guardian SMS is simply not sent in this build; everything else is identical. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.SEND_SMS" tools:node="remove" />
+</manifest>

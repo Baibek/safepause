@@ -97,8 +97,9 @@
 ```bash
 ./tools/setup-sdk.sh                     # Android SDK (один раз)
 ./gradlew :detector:test                 # детектор + оценка
-./gradlew :app:testDebugUnitTest         # логика приложения
-./gradlew :app:assembleDebug             # APK: app/build/outputs/apk/debug/app-debug.apk
+./gradlew :app:testFullDebugUnitTest     # логика приложения
+./gradlew :app:assembleFullDebug         # APK: app/build/outputs/apk/full/debug/app-full-debug.apk
+./gradlew :app:assembleLiteDebug         # то же без разрешения SMS: app/build/outputs/apk/lite/debug/app-lite-debug.apk
 ```
 
 Если Maven Central отвечает `429 Too Many Requests`, запустите `./tools/fetch-missing.sh <лог сборки>` и
@@ -119,4 +120,7 @@
 - Не проверено в этой среде (нет эмулятора): работа на устройстве, живой вызов Claude, запись экрана.
 - APK весит ~125 МБ: почти всё — официальный Anthropic Java SDK (~45 МБ jar). Сжатие R8 его уменьшило бы,
   но без проверки на телефоне оно может сломать распознавание речи (JNA) — для демо выбрана надёжная, несжатая сборка.
+- **Google Play Protect может заблокировать установку** (приложение просит спецвозможности и SMS). Сборка
+  `lite` не просит SMS (SMS доверенному человеку в ней не отправляется) и блокируется реже. Если блокирует всё равно:
+  Play Store → профиль → Play Protect → ⚙️ → временно выключить «Проверять приложения», установить, включить снова.
 - Установка только через APK: использование спецвозможностей и SMS не пройдёт модерацию Google Play в таком виде.
