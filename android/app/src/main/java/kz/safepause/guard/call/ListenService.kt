@@ -16,7 +16,15 @@ import android.os.VibratorManager
 import kz.safepause.detector.Level
 import kz.safepause.detector.RuleSet
 import kz.safepause.detector.ScamDetector
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kz.safepause.guard.R
+import kz.safepause.guard.ai.ApiKeyStore
+import kz.safepause.guard.ai.CallAnalyst
 import kz.safepause.guard.speech.AudioCapture
 import kz.safepause.guard.speech.DualRecognizer
 import kz.safepause.guard.speech.ModelManager
@@ -27,8 +35,6 @@ import kz.safepause.guard.ui.Strings
 class ListenService : Service() {
     companion object {
         private const val CHANNEL = "listen"
-        /** Hook for the Claude second opinion (Task 6); called with every new final phrase. */
-        var onPhrase: ((kz.safepause.detector.Assessment, List<kz.safepause.detector.Phrase>) -> Unit)? = null
 
         fun start(ctx: Context) = ctx.startForegroundService(Intent(ctx, ListenService::class.java))
         fun stop(ctx: Context) = ctx.stopService(Intent(ctx, ListenService::class.java))
@@ -36,6 +42,7 @@ class ListenService : Service() {
 
     private val capture = AudioCapture()
     private var recognizer: DualRecognizer? = null
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -64,6 +71,19 @@ class ListenService : Service() {
         val started = System.currentTimeMillis()
         var lastLevel = Level.LOW
         CallBus.listening.value = true
+        val analyst = CallAnalyst(ApiKeyStore.client(this), scope, { Strings.lang(this) })
+        // Claude's opinion can raise the shown level by one step; its reasons are added to the warning.
+        analyst.verdict.onEach { v ->
+            if (v == null) return@onEach
+            CallBus.llmReasons.value = v.reasons
+            val current = CallBus.assessment.value ?: return@onEach
+            val merged = analyst.level(current)
+            if (merged != current.level) {
+                CallBus.assessment.value = current.copy(level = merged)
+                if (merged == Level.HIGH && lastLevel != Level.HIGH) vibrate()
+                lastLevel = merged
+            }
+        }.launchIn(scope)
 
         capture.start { pcm, n ->
             if (silence.feed(AudioCapture.rms(pcm, n), System.currentTimeMillis() - started)) CallBus.problem.value = Problem.MIC_SILENT
@@ -71,9 +91,10 @@ class ListenService : Service() {
             CallBus.partial.value = rec.partial()
             for (p in phrases) {
                 CallBus.transcript.value = CallBus.transcript.value + p
-                val a = detector.add(p)
+                val raw = detector.add(p)
+                analyst.onPhrase(raw, CallBus.transcript.value)
+                val a = raw.copy(level = analyst.level(raw))
                 CallBus.assessment.value = a
-                onPhrase?.invoke(a, CallBus.transcript.value)
                 if (a.level == Level.HIGH && lastLevel != Level.HIGH) vibrate()
                 lastLevel = a.level
             }
@@ -89,6 +110,7 @@ class ListenService : Service() {
 
     override fun onDestroy() {
         capture.stop()
+        scope.cancel()
         recognizer?.close(); recognizer = null
         CallBus.listening.value = false
         super.onDestroy()
