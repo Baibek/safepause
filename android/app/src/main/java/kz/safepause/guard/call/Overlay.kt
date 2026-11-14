@@ -47,9 +47,10 @@ class Overlay(private val ctx: Context, private val windowType: Int) {
 
     fun attach() {
         job = scope.launch {
-            combine(CallBus.call, CallBus.listening, CallBus.assessment, CallBus.transcript, CallBus.problem) { c, l, a, t, p ->
-                arrayOf(c, l, a, t, p)
-            }.collect { render() }
+            combine(
+                combine(CallBus.call, CallBus.listening, CallBus.assessment, CallBus.transcript, CallBus.problem) { c, l, a, t, p -> arrayOf(c, l, a, t, p) },
+                CallBus.videoStep, CallBus.videoResult,
+            ) { a, b, c -> Triple(a, b, c) }.collect { render() }
         }
     }
 
@@ -64,6 +65,8 @@ class Overlay(private val ctx: Context, private val windowType: Int) {
         val a = CallBus.assessment.value
         if (a?.level == Level.HIGH && a.hits.size > warnedAt && !showWarning) showWarning = true
         val content = when {
+            CallBus.videoStep.value != null -> stepCard(CallBus.videoStep.value!!)
+            CallBus.videoResult.value != null -> videoResultCard()
             CallBus.problem.value != Problem.NONE -> problemCard(CallBus.problem.value)
             !CallBus.listening.value -> bubble()
             showWarning -> warningCard()
@@ -102,6 +105,26 @@ class Overlay(private val ctx: Context, private val windowType: Int) {
             addView(button(s("warning_ok"), navy) {
                 showWarning = false; warnedAt = CallBus.assessment.value?.hits?.size ?: 0; render()
             })
+        }
+    }
+
+    private fun stepCard(step: kz.safepause.detector.Step): View = column(navy).apply {
+        addView(text(s("video_checking"), 14f))
+        addView(text(s("step_" + step.name), 22f, bold = true))
+    }
+
+    private fun videoResultCard(): View {
+        val (outcome, signals) = CallBus.videoResult.value!!
+        val bg = when (outcome) {
+            kz.safepause.detector.VideoOutcome.LOOKS_NORMAL -> teal
+            kz.safepause.detector.VideoOutcome.NO_IMAGE -> navy
+            else -> red
+        }
+        return column(bg).apply {
+            addView(text(s("video_" + outcome.name), 20f, bold = true))
+            signals.forEach { addView(text("• " + if (lang() == "ru") it.ru else it.kk, 14f)) }
+            addView(text(s("video_note"), 13f))
+            addView(button(s("warning_ok"), navy) { CallBus.videoResult.value = null })
         }
     }
 

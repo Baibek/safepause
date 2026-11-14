@@ -22,6 +22,10 @@ object CallBus {
     /** Extra reasons from the Claude second opinion (filled by CallAnalyst when a key is set). */
     val llmReasons = MutableStateFlow<List<String>>(emptyList())
 
+    /** Face check: the instruction currently shown (a Step name) and the final result. */
+    val videoStep = MutableStateFlow<kz.safepause.detector.Step?>(null)
+    val videoResult = MutableStateFlow<Pair<kz.safepause.detector.VideoOutcome, List<kz.safepause.detector.VideoSignal>>?>(null)
+
     private val endListeners = mutableListOf<(CallInfo, Assessment?, List<Phrase>) -> Unit>()
 
     fun onCallEnded(cb: (CallInfo, Assessment?, List<Phrase>) -> Unit) { synchronized(endListeners) { endListeners += cb } }
@@ -29,6 +33,7 @@ object CallBus {
     fun start(info: CallInfo) {
         if (call.value != null) return
         assessment.value = null; transcript.value = emptyList(); partial.value = ""; problem.value = Problem.NONE; llmReasons.value = emptyList()
+        videoStep.value = null; videoResult.value = null
         call.value = info
     }
 

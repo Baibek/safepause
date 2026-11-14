@@ -36,6 +36,7 @@ dependencies {
     implementation(libs.vosk)
     implementation(libs.anthropic)
     implementation(libs.security.crypto)
+    implementation(libs.mlkit.face)
     implementation("net.java.dev.jna:jna:${libs.versions.jna.get()}@aar")
     testImplementation(libs.junit4)
     testImplementation(libs.coroutines.test)

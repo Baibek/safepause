@@ -65,6 +65,16 @@ object Strings {
         "settings_keep" to "Әңгіме мәтінін сақтау",
         "settings_mic_test" to "Микрофон сынағы",
         "save" to "Сақтау",
+        "step_TURN_LEFT" to "Одан басын СОЛҒА толық бұруды сұраңыз",
+        "step_TURN_RIGHT" to "Енді басын ОҢҒА бұруды сұраңыз",
+        "step_HAND_OVER_FACE" to "Қолын бетінің алдынан баяу өткізуді сұраңыз",
+        "step_CLOSER" to "Камераға жақындауды сұраңыз",
+        "video_checking" to "Бет тексеріліп жатыр…",
+        "video_LOOKS_NORMAL" to "Жасанды бет белгілері табылмады",
+        "video_SUSPICIOUS" to "Күдікті: жасанды бет белгілері бар",
+        "video_DID_NOT_COOPERATE" to "Тексеруден бас тартты — сақ болыңыз",
+        "video_NO_IMAGE" to "Экранды түсіру мүмкін болмады",
+        "video_note" to "Бұл — нақты үкім емес, байқалған белгілер. Ақша сұраса — тұтқаны қойыңыз.",
         "saved" to "Сақталды",
     )
     private val ru = mapOf(
@@ -128,6 +138,16 @@ object Strings {
         "settings_keep" to "Сохранять текст разговора",
         "settings_mic_test" to "Тест микрофона",
         "save" to "Сохранить",
+        "step_TURN_LEFT" to "Попросите его полностью повернуть голову ВЛЕВО",
+        "step_TURN_RIGHT" to "Теперь попросите повернуть голову ВПРАВО",
+        "step_HAND_OVER_FACE" to "Попросите медленно провести рукой перед лицом",
+        "step_CLOSER" to "Попросите подойти ближе к камере",
+        "video_checking" to "Проверяем лицо…",
+        "video_LOOKS_NORMAL" to "Признаков подменённого лица не найдено",
+        "video_SUSPICIOUS" to "Подозрительно: есть признаки подменённого лица",
+        "video_DID_NOT_COOPERATE" to "Отказался от проверки — будьте осторожны",
+        "video_NO_IMAGE" to "Не удалось снять экран",
+        "video_note" to "Это не окончательный вердикт, а замеченные признаки. Если просят деньги — положите трубку.",
         "saved" to "Сохранено",
     )
 

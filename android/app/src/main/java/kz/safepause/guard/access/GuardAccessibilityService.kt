@@ -20,6 +20,7 @@ class GuardAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         watcher = CallWatcher(this).also { it.start() }
         overlay = Overlay(this, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY).also { it.attach() }
+        Overlay.onCheckFace = { kz.safepause.guard.video.VideoCheckActivity.launch(this) }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
