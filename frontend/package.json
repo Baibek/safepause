@@ -2,7 +2,20 @@
   "name": "safepause-web",
   "private": true,
   "type": "module",
-  "scripts": { "dev": "vite", "build": "vite build", "build:virtual": "node build-virtual.mjs" },
-  "dependencies": { "react": "^18.3.1", "react-dom": "^18.3.1", "vis-network": "^9.1.9", "vis-data": "^7.1.9" },
-  "devDependencies": { "@vitejs/plugin-react": "^4.3.4", "vite": "^5.4.11" }
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:virtual": "node build-virtual.mjs"
+  },
+  "dependencies": {
+    "@mintplex-labs/piper-tts-web": "^1.0.5",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vis-data": "^7.1.9",
+    "vis-network": "^9.1.9"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.11"
+  }
 }

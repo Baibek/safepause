@@ -4,7 +4,7 @@ import scamCalls from "../../../shared/demo_calls_scam.json";
 import legitCalls from "../../../shared/demo_calls_legit.json";
 import replies from "../../../shared/demo_replies.json";
 import { ScamDetector, loadRules } from "./detector.js";
-import { startListening, speak, stopSpeaking } from "./speech.js";
+import { startListening, speak, stopSpeaking, preparePiper, piperAudio } from "./speech.js";
 import { askClaude, merge } from "./analyst.js";
 
 const RULES = loadRules(rulesJson);
@@ -33,6 +33,7 @@ const T = {
     warnTitle: "Бұл алаяқ болуы әбден мүмкін",
     advice: "Тұтқаны қойыңыз. Ешқандай кодты айтпаңыз, ақша аудармаңыз. Банкке картаның артындағы нөмірмен өзіңіз қоңырау шалыңыз.",
     who: { caller: "Қоңырау шалушы", client: "Клиент" },
+    voiceLoading: "Нейрон дауыстар жүктелуде (бір рет)",
     ok: "Түсіндім", end: "Аяқтау", summary: "Қоңырау қорытындысы", why: "Неге", transcript: "Әңгіме мәтіні", back: "Басқа сценарий",
     micError: "Микрофон қолжетімсіз. Chrome-да ашып, микрофонға рұқсат беріңіз (немесе демо сценарийді таңдаңыз).",
     claude: "Claude пікірі", manual: "Бетті қолмен тексеру", next: "Келесі", yes: "Иә", no: "Жоқ",
@@ -51,6 +52,7 @@ const T = {
     warnTitle: "Очень похоже на мошенника",
     advice: "Положите трубку. Не называйте никаких кодов и не переводите деньги. Сами позвоните в банк по номеру на обороте карты.",
     who: { caller: "Звонящий", client: "Клиент" },
+    voiceLoading: "Загружаются нейронные голоса (один раз)",
     ok: "Понятно", end: "Завершить", summary: "Итог звонка", why: "Почему", transcript: "Текст разговора", back: "Другой сценарий",
     micError: "Микрофон недоступен. Откройте в Chrome и разрешите микрофон (или выберите демо-сценарий).",
     claude: "Мнение Claude", manual: "Проверить лицо вручную", next: "Далее", yes: "Да", no: "Нет",
@@ -129,10 +131,18 @@ export default function CallGuard({ lang, onState }) {
     setListening(true);
     if (sc.turns) {                                            // scripted dialog read aloud, two voices
       const my = ++run.current;
-      for (const turn of sc.turns) {
+      setPartial(t.voiceLoading + "…");
+      const neural = await preparePiper(sc.lang, (p) => run.current === my && setPartial(`${t.voiceLoading} ${Math.round(p * 100)}%`));
+      setPartial("");
+      // synthesise the next line while the current one plays, so the dialog has no gaps
+      let next = neural ? piperAudio(sc.turns[0].text, sc.lang, sc.turns[0].who) : null;
+      for (const [i, turn] of sc.turns.entries()) {
         if (run.current !== my) return;
         setPartial(turn);
-        await speak(turn.text, sc.lang, turn.who);
+        const blob = next;
+        const following = sc.turns[i + 1];
+        next = neural && following ? piperAudio(following.text, sc.lang, following.who) : null;
+        await speak(turn.text, sc.lang, turn.who, blob);
         if (run.current !== my) return;
         setPartial("");
         feed(turn.text, sc.lang, turn.who);

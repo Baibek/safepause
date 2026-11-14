@@ -58,6 +58,7 @@ async function browserVoices() {
 }
 
 export function stopSpeaking() {
+  current?.pause();
   window.speechSynthesis?.cancel();
   ttsPromise?.then((t) => t?.stop?.()).catch(() => {});
 }
@@ -67,11 +68,65 @@ export function stopSpeaking() {
  * Otherwise the browser's voices; a Kazakh line without a Kazakh voice is read by a Russian voice
  * (same alphabet), and only a browser with no speech at all shows the line silently.
  */
+// Piper neural voices (rhasspy/piper, MIT; models downloaded once by the viewer's browser and kept in OPFS).
+// Used on a normal website such as GitHub Pages. A claude.ai artifact may not fetch the models, so there
+// Claude's own voices are used instead.
+export const PIPER_VOICES = {
+  ru: { caller: "ru_RU-dmitri-medium", client: "ru_RU-irina-medium" },
+  kk: { caller: "kk_KZ-issai-high", client: "kk_KZ-raya-x_low" },
+};
+const inArtifact = () => typeof window !== "undefined" && (window.self !== window.top || !!window.claude);
+let piperModule = null;
+function piper() {
+  if (inArtifact() || typeof navigator === "undefined" || !navigator.storage?.getDirectory) return Promise.resolve(null);
+  piperModule ??= import("@mintplex-labs/piper-tts-web").catch(() => null);
+  return piperModule;
+}
+let piperBroken = false;
+
+/** Downloads both voices of a call once (progress 0..1). Resolves false when Piper cannot be used here. */
+export async function preparePiper(lang, onProgress) {
+  const tts = await piper();
+  if (!tts || piperBroken) return false;
+  const ids = Object.values(PIPER_VOICES[lang]);
+  try {
+    const stored = await tts.stored().catch(() => []);
+    const missing = ids.filter((id) => !stored.includes(id));
+    const share = {};
+    await Promise.all(missing.map((id) => tts.download(id, (p) => {
+      share[id] = p.total ? p.loaded / p.total : 0;
+      onProgress?.(Object.values(share).reduce((a, b) => a + b, 0) / missing.length);
+    })));
+    return true;
+  } catch { piperBroken = true; return false; }
+}
+
+/** Synthesises one line to a WAV blob (null when Piper is unavailable). Start it early to hide the latency. */
+export async function piperAudio(text, lang, who) {
+  const tts = await piper();
+  if (!tts || piperBroken) return null;
+  try { return await tts.predict({ text, voiceId: PIPER_VOICES[lang][who] }); }
+  catch { piperBroken = true; return null; }
+}
+
+let current = null;
+function playBlob(blob) {
+  return new Promise((resolve) => {
+    const a = new Audio(URL.createObjectURL(blob));
+    current = a;
+    const done = () => { URL.revokeObjectURL(a.src); if (current === a) current = null; resolve(); };
+    a.onended = done; a.onerror = done; a.onpause = done;
+    a.play().catch(done);
+  });
+}
+
 // Two people on the line: the caller and the client (an older person) get different voices.
 const CLAUDE_VOICE = { caller: "glassy", client: "airy" };
 const BROWSER_STYLE = { caller: { pitch: 1.0, rate: 1.0 }, client: { pitch: 1.15, rate: 0.88 } };
 
-export async function speak(text, lang, who = "caller") {
+export async function speak(text, lang, who = "caller", piperBlob = null) {
+  const blob = piperBlob ? await piperBlob : await piperAudio(text, lang, who);
+  if (blob) return playBlob(blob);
   const tts = await claudeTts();
   if (tts) {
     try { await tts.speak(text, { language: lang, voice: CLAUDE_VOICE[who] }); return; }
