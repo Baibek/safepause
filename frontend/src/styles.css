@@ -207,3 +207,44 @@ h4.first { margin-top: 6px; }
 .call-alert { background: var(--red-soft); color: var(--red-ink); border-radius: 14px; padding: 10px 12px; display: grid; gap: 4px; font-size: 12.5px; margin-top: 8px; }
 .call-alert b { font-size: 13.5px; } .call-alert button { justify-self: start; border: 1px solid var(--red); background: none; color: var(--red-ink); border-radius: 8px; padding: 4px 10px; font-size: 12px; }
 .tag.hot { background: var(--red-soft); color: var(--red-ink); }
+
+/* ---- transfers section ---- */
+.screen.tr { gap: 10px; }
+.tr-head { display: grid; gap: 0; } .tr-head h4 { margin: 0; font-size: 22px; letter-spacing: -.01em; }
+.ico { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.tr-types { list-style: none; margin: 0; padding: 0; display: grid; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: var(--surface); }
+.tr-types li + li { border-top: 1px solid var(--line); }
+.tr-types button { width: 100%; display: flex; gap: 12px; align-items: center; text-align: left; border: 0; background: none; padding: 12px 14px; }
+.tr-types button:hover { background: var(--teal-soft); }
+.tr-types .ico { color: var(--teal); width: 26px; height: 26px; }
+.tr-types span { display: grid; } .tr-types b { font-weight: 600; font-size: 14.5px; } .tr-types small { color: var(--ink2); font-size: 12px; }
+.tr-recents { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 4px; }
+.tr-recents button { border: 0; background: none; display: grid; justify-items: center; gap: 4px; width: 64px; flex: none; }
+.tr-recents i, .tr-chips i { font-style: normal; display: grid; place-items: center; border-radius: 50%; background: var(--teal); color: var(--on-teal); font-weight: 600; }
+.tr-recents i { width: 46px; height: 46px; font-size: 15px; }
+.tr-recents i.new, .tr-chips i.new { background: var(--amber-soft); color: var(--amber-ink); }
+.tr-recents small { font-size: 11.5px; color: var(--ink2); text-align: center; line-height: 1.2; }
+.tr-bar { display: flex; align-items: center; gap: 6px; margin: 0 -6px; }
+.tr-bar b { font-size: 16px; }
+.tr-back { border: 0; background: none; padding: 6px; border-radius: 10px; display: grid; } .tr-back:hover { background: var(--paper); }
+.tr-row { display: grid; gap: 4px; }
+.tr-row .lbl { margin: 2px 0 0; }
+.tr-source { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px; background: var(--surface); font-size: 14px; }
+.tr-source .ico { color: var(--teal); } .tr-source b { margin-left: auto; font-variant-numeric: tabular-nums; }
+.tr-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.tr-chips button { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--surface); border-radius: 99px; padding: 3px 10px 3px 3px; font-size: 12.5px; }
+.tr-chips button.on { border-color: var(--teal); box-shadow: inset 0 0 0 1px var(--teal); }
+.tr-chips i { width: 24px; height: 24px; font-size: 10px; }
+.tr-field { font-variant-numeric: tabular-nums; font-size: 15px; padding: 9px 12px; border-radius: 12px; background: var(--paper); letter-spacing: .02em; }
+.tr-lookup { margin: 0; font-size: 12.5px; } .tr-lookup.ok { color: var(--green-ink); } .tr-lookup.new { color: var(--amber-ink); }
+.tr-amount { display: flex; align-items: baseline; gap: 6px; border-bottom: 2px solid var(--teal); padding-bottom: 2px; }
+.tr-amount input { border: 0; background: none; outline: none; font: inherit; font-size: 34px; font-weight: 600; letter-spacing: -.02em; width: 100%; min-width: 0; font-variant-numeric: tabular-nums; color: var(--ink); }
+.tr-amount span { font-size: 26px; font-weight: 500; color: var(--ink2); }
+.tr-amount:focus-within { border-bottom-color: var(--amber); }
+.tr-words { margin: 2px 0 0; font-size: 13px; color: var(--ink2); min-height: 2.6em; line-height: 1.3; }
+.tr-quick { display: flex; gap: 6px; }
+.tr-quick button { border: 1px solid var(--line); background: var(--surface); border-radius: 99px; padding: 4px 10px; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.tr-fee { display: flex; justify-content: space-between; font-size: 13px; color: var(--ink2); border-top: 1px dashed var(--line); padding-top: 8px; }
+.tr-fee b { color: var(--green-ink); }
+.tr-msg { border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px; background: var(--surface); color: var(--ink); font: inherit; font-size: 14px; }
+.screen.tr > .primary { margin-top: 6px; }

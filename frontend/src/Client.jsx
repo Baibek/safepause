@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { api, fmt } from "./i18n.js";
 import CallGuard, { CALL_T } from "./call/CallGuard.jsx";
+import TransferSection from "./transfer/TransferSection.jsx";
 import { STAGES } from "./call/detector.js";
 
 const PRESETS = {
@@ -107,6 +108,7 @@ export default function Client({ boot, lang, t }) {
   const [notes, setNotes] = useState([]);
   const [spent, setSpent] = useState({});
   const [mode, setMode] = useState("call"); // call | transfer | message
+  const [tStep, setTStep] = useState("menu"); // transfers section: menu of transfer types | form
   const [callState, setCallState] = useState(null);
   const [scamCallAt, setScamCallAt] = useState(null);   // set when Call Guard flags a call: the bank app pauses transfers for an hour
   useEffect(() => {
@@ -127,7 +129,7 @@ export default function Client({ boot, lang, t }) {
   useEffect(() => { chatEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [chat, busy]);
 
   const home = () => { setScreen("home"); setCheck(null); setChat([]); setQuestion(null); setFinal(null); setErr(""); };
-  const applyPreset = (k) => { home(); setMode("transfer"); setSc(PRESETS[k]); };
+  const applyPreset = (k) => { home(); setMode("transfer"); setTStep("form"); setSc({ ttype: "phone", ...PRESETS[k] }); };
 
   const send = async () => {
     setErr(""); setScreen("checking");
@@ -223,34 +225,15 @@ export default function Client({ boot, lang, t }) {
           {mode === "call" && <CallGuard lang={lang} onState={setCallState} />}
           {mode === "message" && <Messages boot={boot} lang={lang} t={t} />}
           {mode === "transfer" && screen === "home" && (
-            <div className="screen">
-              <div className="hello">{persona.name}</div>
-              {scamCallMinutes != null && (
+            <TransferSection step={tStep} setStep={setTStep} boot={boot} lang={lang} t={t} persona={persona} balance={balance}
+              sc={sc} set={set} onSend={send} err={err}
+              alert={scamCallMinutes != null && (
                 <div className="call-alert" role="status">
                   <b>⚠ {t.callAlert(Math.round(scamCallMinutes))}</b>
                   <span>{t.callAlertSub}</span>
                   <button onClick={() => setScamCallAt(null)}>{t.callAlertOk}</button>
                 </div>
-              )}
-              <div className="card-balance">
-                <span>{t.balance}</span>
-                <b>{fmt(balance)} ₸</b>
-              </div>
-              <h4>{t.transfer}</h4>
-              <span className="lbl">{t.to}</span>
-              <div className="recips">
-                {boot.recipients.map((r) => (
-                  <button key={r.id} className={sc.recipient === r.id ? "on" : ""} onClick={() => set({ recipient: r.id })}>
-                    <b>{r.name[lang]}</b><small>{r.account}</small>
-                  </button>
-                ))}
-              </div>
-              <label className="lbl" htmlFor="amt">{t.amount}</label>
-              <input id="amt" className="amount" inputMode="numeric" value={sc.amount}
-                onChange={(e) => set({ amount: e.target.value.replace(/\D/g, "") })} />
-              {err && <p className="error">{err}</p>}
-              <button className="primary" disabled={!Number(sc.amount)} onClick={send}>{t.send}</button>
-            </div>
+              )} />
           )}
           {mode === "transfer" && screen === "checking" && (
             <div className="screen center"><div className="pulse"><i /><i /></div><p>{t.checking}</p></div>
@@ -296,7 +279,7 @@ export default function Client({ boot, lang, t }) {
               <button className="primary" onClick={home}>{t.again}</button>
             </div>
           )}
-          {(mode === "message" || (mode === "transfer" && screen === "home") || (mode === "call" && (!callState || callState.screen === "pick"))) && (
+          {(mode === "message" || (mode === "transfer" && screen === "home" && tStep === "menu") || (mode === "call" && (!callState || callState.screen === "pick"))) && (
             <nav className="phone-tabs three">
               <button className={mode === "call" ? "on" : ""} onClick={() => setMode("call")}>{t.tabCall}</button>
               <button className={mode === "transfer" ? "on" : ""} onClick={() => setMode("transfer")}>{t.tabTransfer}</button>
