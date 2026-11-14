@@ -204,3 +204,6 @@ h4.first { margin-top: 6px; }
 .strip .turn.client { justify-self: end; text-align: right; background: rgba(255,255,255,.22); }
 .strip .turn i { font-style: normal; font-size: 10.5px; opacity: .8; text-transform: uppercase; letter-spacing: .04em; }
 .strip .turn.speaking { outline: 1px dashed rgba(255,255,255,.7); }
+.call-alert { background: var(--red-soft); color: var(--red-ink); border-radius: 14px; padding: 10px 12px; display: grid; gap: 4px; font-size: 12.5px; margin-top: 8px; }
+.call-alert b { font-size: 13.5px; } .call-alert button { justify-self: start; border: 1px solid var(--red); background: none; color: var(--red-ink); border-radius: 8px; padding: 4px 10px; font-size: 12px; }
+.tag.hot { background: var(--red-soft); color: var(--red-ink); }

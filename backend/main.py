@@ -22,6 +22,7 @@ HERE = Path(__file__).parent
 ALMATY = timezone(timedelta(hours=5))
 PAUSE_AT, HIGH_AT = 0.25, 0.60
 GUARDIAN_MIN_AMOUNT = 100_000
+SCAM_CALL_WINDOW_MIN = 60   # a transfer within an hour of a detected scam call is always paused
 
 if not (HERE / "model.json").exists():
     import train
@@ -171,6 +172,7 @@ def seed():
             "recipient": rnd.choice(drops) if r["recipient_drop_score"] > 0.5 else f"KZ{rnd.randint(10, 99)} •••• {rnd.randint(1000, 9999)}",
             "amount": round(r["amount"], -2), "risk": round(risk, 3), "level": lvl, "status": status,
             "paused": lvl != "low", "factors": factors_for(r, contrib), "transcript": [], "guardian": None, "live": False,
+            "scam_call": False,
         }
 
 
@@ -187,6 +189,8 @@ class Signals(BaseModel):
     remote_app: bool = False
     hour: Optional[int] = None
     session_seconds: float = 45
+    # minutes since SafePause Call Guard on this phone flagged a call as fraud (None = no such call)
+    scam_call_minutes: Optional[float] = None
 
 
 class CheckIn(BaseModel):
@@ -269,20 +273,29 @@ def check(body: CheckIn):
                            s.on_call, s.unknown_caller, s.remote_app, s.session_seconds, persona["age"],
                            rec["age_days"], drop["score"] if drop else 0.05, 1)
     risk, contrib = score(feats)
-    lvl = level_of(risk)
     tid = f"TX-{uuid.uuid4().hex[:6].upper()}"
     factors = factors_for(feats, contrib)
+    scam_call = s.scam_call_minutes is not None and 0 <= s.scam_call_minutes <= SCAM_CALL_WINDOW_MIN
+    if scam_call:
+        # the strongest signal there is: the client is probably being coached by that caller right now
+        m = round(s.scam_call_minutes)
+        factors.insert(0, {"key": "scam_call", "contribution": 5.0, "value": m,
+                           "kk": ("Жаңа ғана" if m < 1 else f"{m} минут бұрын") + " телефоныңызда алаяқтық белгілері бар қоңырау анықталды",
+                           "ru": ("Только что" if m < 1 else f"{m} мин назад") + " на вашем телефоне распознан звонок с признаками мошенничества",
+                           "en": f"SafePause flagged a scam phone call on this device {m} minutes ago"})
+        risk = max(risk, 0.95)
+    lvl = level_of(risk)
     tx = {"id": tid, "time": now_iso(), "client": persona["name"], "age": persona["age"], "persona": persona["id"],
           "recipient": rec["account"], "amount": body.amount, "risk": round(risk, 3), "level": lvl,
           "status": "approved", "paused": lvl != "low", "factors": factors, "transcript": [], "guardian": None,
-          "live": True, "risky": [], "drop_network": drop["network"] if drop else None}
+          "live": True, "risky": [], "drop_network": drop["network"] if drop else None, "scam_call": scam_call}
     TX[tid] = tx
     resp = {"tx_id": tid, "risk": tx["risk"], "level": lvl, "factors": factors, "action": "approve"}
     if lvl == "low":
         return resp
 
     queue = []
-    if s.on_call or lvl == "high":
+    if s.on_call or lvl == "high" or scam_call:
         queue.append("call")
     if s.remote_app:
         queue.append("remote")
@@ -293,7 +306,7 @@ def check(body: CheckIn):
     tx["queue"] = queue or ["call"]
     tx["status"] = "in_dialog"
     # for the client message, lead with the signals a person can verify themselves
-    client_first = ["on_call", "unknown_caller", "remote_app", "recipient_drop_score", "new_recipient", "amount_ratio"]
+    client_first = ["scam_call", "on_call", "unknown_caller", "remote_app", "recipient_drop_score", "new_recipient", "amount_ratio"]
     positive = sorted((f for f in factors if f["contribution"] > 0),
                       key=lambda f: client_first.index(f["key"]) if f["key"] in client_first else 99)[:3]
     msg = llm.opening_message(lang, body.amount, rec["account"], [f["en"] for f in positive])

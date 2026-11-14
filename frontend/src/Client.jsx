@@ -108,6 +108,13 @@ export default function Client({ boot, lang, t }) {
   const [spent, setSpent] = useState({});
   const [mode, setMode] = useState("call"); // call | transfer | message
   const [callState, setCallState] = useState(null);
+  const [scamCallAt, setScamCallAt] = useState(null);   // set when Call Guard flags a call: the bank app pauses transfers for an hour
+  useEffect(() => {
+    if (callState?.screen === "summary" && callState.level === "HIGH") setScamCallAt((at) => at ?? Date.now());
+  }, [callState?.screen, callState?.level]);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { const i = setInterval(() => setNow(Date.now()), 15000); return () => clearInterval(i); }, []);
+  const scamCallMinutes = scamCallAt && now - scamCallAt <= 3600_000 ? Math.max(0, (now - scamCallAt) / 60000) : null;
   const chatEnd = useRef(null);
 
   const persona = boot.personas.find((p) => p.id === sc.persona);
@@ -129,7 +136,7 @@ export default function Client({ boot, lang, t }) {
         api("/api/transfer/check", {
           persona: sc.persona, recipient_id: sc.recipient, amount: Number(sc.amount), lang,
           signals: { on_call: sc.on_call, unknown_caller: sc.unknown_caller, remote_app: sc.remote_app,
-            hour: sc.night ? 2 : null, session_seconds: sc.pace },
+            hour: sc.night ? 2 : null, session_seconds: sc.pace, scam_call_minutes: scamCallMinutes },
         }),
         new Promise((r) => setTimeout(r, 900)),
       ]);
@@ -218,6 +225,13 @@ export default function Client({ boot, lang, t }) {
           {mode === "transfer" && screen === "home" && (
             <div className="screen">
               <div className="hello">{persona.name}</div>
+              {scamCallMinutes != null && (
+                <div className="call-alert" role="status">
+                  <b>⚠ {t.callAlert(Math.round(scamCallMinutes))}</b>
+                  <span>{t.callAlertSub}</span>
+                  <button onClick={() => setScamCallAt(null)}>{t.callAlertOk}</button>
+                </div>
+              )}
               <div className="card-balance">
                 <span>{t.balance}</span>
                 <b>{fmt(balance)} ₸</b>
