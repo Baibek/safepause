@@ -49,8 +49,8 @@ class Overlay(private val ctx: Context, private val windowType: Int) {
         job = scope.launch {
             combine(
                 combine(CallBus.call, CallBus.listening, CallBus.assessment, CallBus.transcript, CallBus.problem) { c, l, a, t, p -> arrayOf(c, l, a, t, p) },
-                CallBus.videoStep, CallBus.videoResult,
-            ) { a, b, c -> Triple(a, b, c) }.collect { render() }
+                CallBus.videoStep, CallBus.videoResult, CallBus.manual,
+            ) { a, b, c, d -> listOf(a, b, c, d) }.collect { render() }
         }
     }
 
@@ -65,6 +65,7 @@ class Overlay(private val ctx: Context, private val windowType: Int) {
         val a = CallBus.assessment.value
         if (a?.level == Level.HIGH && a.hits.size > warnedAt && !showWarning) showWarning = true
         val content = when {
+            CallBus.manual.value != null -> manualCard(CallBus.manual.value!!)
             CallBus.videoStep.value != null -> stepCard(CallBus.videoStep.value!!)
             CallBus.videoResult.value != null -> videoResultCard()
             showWarning -> warningCard()
@@ -89,6 +90,7 @@ class Overlay(private val ctx: Context, private val windowType: Int) {
             val row = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
             row.addView(button(s("stop"), navy) { ListenService.stop(ctx) })
             if (call.kind == CallKind.WHATSAPP && onCheckFace != null) row.addView(button(s("check_face"), navy) { onCheckFace?.invoke() })
+            if (call.kind == CallKind.WHATSAPP) row.addView(button(s("manual_check"), navy) { startManual() })
             addView(row)
         }
     }
@@ -124,8 +126,38 @@ class Overlay(private val ctx: Context, private val windowType: Int) {
             addView(text(s("video_" + outcome.name), 20f, bold = true))
             signals.forEach { addView(text("• " + if (lang() == "ru") it.ru else it.kk, 14f)) }
             addView(text(s("video_note"), 13f))
+            if (outcome == kz.safepause.detector.VideoOutcome.NO_IMAGE) addView(button(s("manual_check"), teal) { startManual() })
             addView(button(s("warning_ok"), navy) { CallBus.videoResult.value = null })
         }
+    }
+
+    private fun startManual() {
+        CallBus.videoResult.value = null
+        CallBus.manual.value = CallBus.Manual(0, emptyMap())
+    }
+
+    /** Steps first (the client asks the caller and taps Next), then yes/no questions about what they saw. */
+    private fun manualCard(m: CallBus.Manual): View = column(navy).apply {
+        val steps = kz.safepause.detector.Step.entries
+        val questions = kz.safepause.detector.ManualQuestion.entries
+        if (m.index < steps.size) {
+            addView(text(s("manual_hint"), 13f))
+            addView(text(s("step_" + steps[m.index].name), 22f, bold = true))
+            addView(button(s("onb_next"), teal) { CallBus.manual.value = m.copy(index = m.index + 1) })
+        } else {
+            val q = questions[m.index - steps.size]
+            addView(text(s("q_" + q.name), 20f, bold = true))
+            val row = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+            fun answer(v: Boolean) {
+                val answers = m.answers + (q to v)
+                if (m.index - steps.size + 1 < questions.size) CallBus.manual.value = CallBus.Manual(m.index + 1, answers)
+                else { CallBus.manual.value = null; CallBus.videoResult.value = kz.safepause.detector.judgeManual(answers) }
+            }
+            row.addView(button(s("yes"), teal) { answer(true) })
+            row.addView(button(s("no"), teal) { answer(false) })
+            addView(row)
+        }
+        addView(button(s("stop"), navy) { CallBus.manual.value = null })
     }
 
     private fun problemCard(p: Problem): View = column(navy).apply {

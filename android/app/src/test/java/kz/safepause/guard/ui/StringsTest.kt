@@ -10,7 +10,8 @@ class StringsTest {
         "grant", "granted", "models_title", "models_download", "models_ready", "models_failed",
         "home_title", "home_status", "home_test_call", "home_test_running", "home_recent", "home_no_calls",
         "settings_title", "settings_lang", "settings_name", "settings_api_key", "settings_api_key_hint", "settings_guardian_name",
-        "settings_guardian_phone", "settings_keep", "settings_mic_test", "save", "saved",
+        "settings_guardian_phone", "settings_keep", "settings_mic_test", "save", "saved", "manual_check", "manual_hint", "yes", "no",
+        "q_REFUSED", "q_DISTORTED_ON_TURN", "q_HAND_GLITCH", "q_LIPS_OUT_OF_SYNC",
     )
 
     @Test fun everyKeyHasKkAndRu() {

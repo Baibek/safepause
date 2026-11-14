@@ -16,7 +16,8 @@ enum class VideoOutcome { LOOKS_NORMAL, SUSPICIOUS, DID_NOT_COOPERATE, NO_IMAGE 
 data class VideoSignal(val id: String, val kk: String, val ru: String)
 
 private val SIGNALS = listOf(
-    VideoSignal("no_image", "Экран суреті алынбады — қолданба экранды түсіруге тыйым салған болуы мүмкін", "Не удалось получить изображение экрана — приложение могло запретить запись"),
+    VideoSignal("no_image", "WhatsApp видеоны түсіруге тыйым салады — «Қолмен тексеру» батырмасын басыңыз", "WhatsApp запрещает снимать видео — нажмите «Проверить вручную»"),
+    VideoSignal("refused", "Тапсырманы орындаудан бас тартты", "Отказался выполнять просьбы"),
     VideoSignal("no_face", "Кадрда бет табылмады", "Лицо в кадре не найдено"),
     VideoSignal("no_head_turn", "Басын бұрмады — бет алмастыру бас бұрылғанда бұзылады, сондықтан алаяқтар бұдан қашады", "Не повернул голову — подменённое лицо ломается при повороте, поэтому мошенники этого избегают"),
     VideoSignal("hand_no_occlusion", "Қолымен бетін жапқан жоқ (немесе бет қол астында да көрініп тұрды) — қайта сұраңыз", "Не закрыл лицо рукой (или лицо было видно и под рукой) — попросите ещё раз"),
@@ -75,3 +76,22 @@ fun parseVisionFlags(text: String): List<String> {
 
 /** Every face with |yaw| at least this far counts as turned (exposed for the capture code's step pacing). */
 fun turnedEnough(yaw: Float?) = yaw != null && abs(yaw) >= MIN_TURN_DEGREES
+
+/** The manual face check, asked in this order after the guided steps (used when the screen cannot be captured). */
+enum class ManualQuestion { REFUSED, DISTORTED_ON_TURN, HAND_GLITCH, LIPS_OUT_OF_SYNC }
+
+/** What the client saw → the same outcome and signals as the automatic check. "Yes" means the thing was seen. */
+fun judgeManual(answers: Map<ManualQuestion, Boolean>): Pair<VideoOutcome, List<VideoSignal>> {
+    val seen = { q: ManualQuestion -> answers[q] == true }
+    val signals = buildList {
+        if (seen(ManualQuestion.DISTORTED_ON_TURN)) add(SIGNALS.getValue("edge_flicker"))
+        if (seen(ManualQuestion.HAND_GLITCH)) add(SIGNALS.getValue("hand_behind_face"))
+        if (seen(ManualQuestion.LIPS_OUT_OF_SYNC)) add(SIGNALS.getValue("frozen_expression"))
+    }
+    val refused = if (seen(ManualQuestion.REFUSED)) listOf(SIGNALS.getValue("refused")) else emptyList()
+    return when {
+        signals.isNotEmpty() -> VideoOutcome.SUSPICIOUS to (signals + refused)
+        refused.isNotEmpty() -> VideoOutcome.DID_NOT_COOPERATE to refused
+        else -> VideoOutcome.LOOKS_NORMAL to emptyList()
+    }
+}

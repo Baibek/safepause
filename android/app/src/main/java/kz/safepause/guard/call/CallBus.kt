@@ -26,6 +26,10 @@ object CallBus {
     val videoStep = MutableStateFlow<kz.safepause.detector.Step?>(null)
     val videoResult = MutableStateFlow<Pair<kz.safepause.detector.VideoOutcome, List<kz.safepause.detector.VideoSignal>>?>(null)
 
+    /** Manual face check: a step index (0..3 = Step.entries) or a question index (4.. = ManualQuestion.entries), plus answers. */
+    data class Manual(val index: Int, val answers: Map<kz.safepause.detector.ManualQuestion, Boolean>)
+    val manual = MutableStateFlow<Manual?>(null)
+
     private val endListeners = mutableListOf<(CallInfo, Assessment?, List<Phrase>) -> Unit>()
 
     fun onCallEnded(cb: (CallInfo, Assessment?, List<Phrase>) -> Unit) { synchronized(endListeners) { endListeners += cb } }
@@ -33,7 +37,7 @@ object CallBus {
     fun start(info: CallInfo) {
         if (call.value != null) return
         assessment.value = null; transcript.value = emptyList(); partial.value = ""; problem.value = Problem.NONE; llmReasons.value = emptyList()
-        videoStep.value = null; videoResult.value = null
+        videoStep.value = null; videoResult.value = null; manual.value = null
         call.value = info
     }
 
