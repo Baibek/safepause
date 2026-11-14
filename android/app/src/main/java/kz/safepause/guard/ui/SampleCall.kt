@@ -24,9 +24,11 @@ object SampleCall {
 
     fun running() = CallBus.call.value?.kind == CallKind.SAMPLE
 
-    fun start(ctx: Context) {
-        if (CallBus.call.value != null) return
+    /** Starts the sample, or returns why it cannot (missing microphone permission or models). */
+    fun start(ctx: Context): kz.safepause.guard.call.Problem? {
+        if (CallBus.call.value != null) return null
         val app = ctx.applicationContext
+        kz.safepause.guard.call.listenBlocker(app)?.let { return it }
         CallBus.start(CallInfo(CallKind.SAMPLE, null, System.currentTimeMillis()))
         ListenService.start(app)
         tts = TextToSpeech(app) { status ->
@@ -46,6 +48,7 @@ object SampleCall {
                 t.playSilentUtterance(1200, TextToSpeech.QUEUE_ADD, "gap$i")
             }
         }
+        return null
     }
 
     fun stop() {

@@ -17,7 +17,8 @@ class ListenActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        ListenService.start(this)
+        val blocker = listenBlocker(this)
+        if (blocker != null) CallBus.problem.value = blocker else ListenService.start(this)
         finish()
         overridePendingTransition(0, 0)
     }

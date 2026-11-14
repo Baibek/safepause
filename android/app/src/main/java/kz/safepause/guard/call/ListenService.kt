@@ -41,7 +41,6 @@ class ListenService : Service() {
     }
 
     private val capture = AudioCapture()
-    private var recognizer: DualRecognizer? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -55,23 +54,22 @@ class ListenService : Service() {
             .setContentTitle(Strings.t("listening", lang))
             .setContentText(Strings.t("notif_listening", lang))
             .setOngoing(true).build()
-        startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
-
-        if (CallBus.listening.value) return START_NOT_STICKY
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+        listenBlocker(this)?.let { CallBus.problem.value = it; stopSelf(); return START_NOT_STICKY }
+        try {
+            startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+        } catch (e: Exception) {   // Android refused while-in-use microphone access for this start
             CallBus.problem.value = Problem.NO_MIC_PERMISSION; stopSelf(); return START_NOT_STICKY
         }
-        val models = ModelManager(filesDir)
-        if (!models.ready()) { CallBus.problem.value = Problem.MODELS_MISSING; stopSelf(); return START_NOT_STICKY }
+        if (CallBus.listening.value) return START_NOT_STICKY
 
-        val rec = DualRecognizer(models.modelDir(ModelManager.MODELS[0])!!, models.modelDir(ModelManager.MODELS[1])!!)
-        recognizer = rec
-        val detector = ScamDetector(RuleSet.load())
+        val models = ModelManager(filesDir)
+        var rec: DualRecognizer? = null
+        lateinit var detector: ScamDetector
         val silence = SilenceWatch()
         val started = System.currentTimeMillis()
         var lastLevel = Level.LOW
         CallBus.listening.value = true
-        val analyst = CallAnalyst(ApiKeyStore.client(this), scope, { Strings.lang(this) })
+        val analyst = CallAnalyst(ApiKeyStore.client(this), scope, { Strings.lang(this) }) // key read lazily below
         // Claude's opinion can raise the shown level by one step; its reasons are added to the warning.
         analyst.verdict.onEach { v ->
             if (v == null) return@onEach
@@ -85,10 +83,25 @@ class ListenService : Service() {
             }
         }.launchIn(scope)
 
-        capture.start { pcm, n ->
+        capture.start(
+            prepare = {
+                // loading two speech models takes seconds: do it here, on the audio thread, never on main
+                try {
+                    detector = ScamDetector(RuleSet.load())
+                    rec = DualRecognizer(models.modelDir(ModelManager.MODELS[0])!!, models.modelDir(ModelManager.MODELS[1])!!)
+                    true
+                } catch (e: Exception) {
+                    CallBus.problem.value = Problem.MODELS_MISSING; stopSelf(); false
+                }
+            },
+            onError = { CallBus.problem.value = Problem.MIC_SILENT },
+            onStopped = { rec?.close(); rec = null },
+        ) { pcm, n ->
+            val r = rec ?: return@start
             if (silence.feed(AudioCapture.rms(pcm, n), System.currentTimeMillis() - started)) CallBus.problem.value = Problem.MIC_SILENT
-            val phrases = rec.accept(pcm, n)
-            CallBus.partial.value = rec.partial()
+            else if (!silence.reported && CallBus.problem.value == Problem.MIC_SILENT) CallBus.problem.value = Problem.NONE
+            val phrases = r.accept(pcm, n)
+            CallBus.partial.value = r.partial()
             for (p in phrases) {
                 CallBus.transcript.value = CallBus.transcript.value + p
                 val raw = detector.add(p)
@@ -109,9 +122,8 @@ class ListenService : Service() {
     }
 
     override fun onDestroy() {
-        capture.stop()
+        capture.stop()          // the audio thread closes the recognisers itself after its last chunk
         scope.cancel()
-        recognizer?.close(); recognizer = null
         CallBus.listening.value = false
         super.onDestroy()
     }

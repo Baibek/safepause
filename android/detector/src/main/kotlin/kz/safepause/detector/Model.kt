@@ -15,7 +15,12 @@ data class Rule(
     val exclude: List<Regex>,
     val kk: String,
     val ru: String,
+    /** Whole-word patterns, matched on the spaced text. */
+    val word: List<Regex> = emptyList(),
+    /** Openers of negated spans ("никому не сообщайте …"); see call_rules.json _doc. */
+    val negate: List<Regex> = emptyList(),
 ) {
+
     fun reason(lang: String) = if (lang == "ru") ru else kk
 }
 

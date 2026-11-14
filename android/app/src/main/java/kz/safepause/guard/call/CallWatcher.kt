@@ -20,8 +20,11 @@ class CallWatcher(private val ctx: Context) {
     private val am = ctx.getSystemService(AudioManager::class.java)
     private val main = Handler(Looper.getMainLooper())
     private var callback: Any? = null
+    /** False until phone-state permission was granted and the callback registered; the service retries. */
+    val started get() = callback != null
 
     fun start() {
+        if (started) return
         if (ctx.checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) return
         if (Build.VERSION.SDK_INT >= 31) {
             val cb = object : TelephonyCallback(), TelephonyCallback.CallStateListener {

@@ -67,9 +67,9 @@ class Overlay(private val ctx: Context, private val windowType: Int) {
         val content = when {
             CallBus.videoStep.value != null -> stepCard(CallBus.videoStep.value!!)
             CallBus.videoResult.value != null -> videoResultCard()
+            showWarning -> warningCard()
             CallBus.problem.value != Problem.NONE -> problemCard(CallBus.problem.value)
             !CallBus.listening.value -> bubble()
-            showWarning -> warningCard()
             else -> strip(call)
         }
         show(content, fullWidth = content.tag != "bubble")

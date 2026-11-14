@@ -179,10 +179,14 @@ fun HomeScreen(settings: Settings, models: ModelManager, t: (String) -> String, 
         }
     }
 
-    Button(onClick = { if (SampleCall.running()) SampleCall.stop() else SampleCall.start(ctx) },
+    var sampleProblem by remember { mutableStateOf<kz.safepause.guard.call.Problem?>(null) }
+    Button(onClick = { if (SampleCall.running()) SampleCall.stop() else sampleProblem = SampleCall.start(ctx) },
         enabled = models.ready(), modifier = Modifier.fillMaxWidth(),
         colors = ButtonDefaults.buttonColors(containerColor = Palette.teal)) {
         Text(if (SampleCall.running()) t("stop") else t("home_test_call"))
+    }
+    sampleProblem?.let { p ->
+        Text(t(if (p == kz.safepause.guard.call.Problem.NO_MIC_PERMISSION) "no_mic_permission" else "models_missing"), color = Palette.red)
     }
 
     if (call != null) {

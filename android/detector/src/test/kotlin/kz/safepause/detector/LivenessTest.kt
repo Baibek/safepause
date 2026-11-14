@@ -27,10 +27,17 @@ class LivenessTest {
         assertTrue(signals.any { it.id == "no_head_turn" })
     }
 
-    @Test fun faceStaysDetectedThroughHandPassIsSuspicious() {
+    @Test fun faceNeverCoveredIsDidNotCooperate() {
+        // a caller who did not pass a hand looks the same as an overlay that ignores the hand: not a verdict
         val (outcome, signals) = judge(samples(handFaceFound = listOf(true, true, true, true)), false, emptyList())
-        assertEquals(VideoOutcome.SUSPICIOUS, outcome)
+        assertEquals(VideoOutcome.DID_NOT_COOPERATE, outcome)
         assertTrue(signals.any { it.id == "hand_no_occlusion" })
+    }
+
+    @Test fun smallSelfViewFaceDuringHandPassCountsAsCovered() {
+        // WhatsApp's own small self-view stays visible when the caller covers their face
+        val (outcome, _) = judge(samples(handFaceFound = listOf(true, true, true, true), handArea = 0.02f), false, emptyList())
+        assertEquals(VideoOutcome.LOOKS_NORMAL, outcome)
     }
 
     @Test fun goodTurnsAndOcclusionLooksNormal() {

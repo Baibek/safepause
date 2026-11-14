@@ -19,7 +19,7 @@ private val SIGNALS = listOf(
     VideoSignal("no_image", "Экран суреті алынбады — қолданба экранды түсіруге тыйым салған болуы мүмкін", "Не удалось получить изображение экрана — приложение могло запретить запись"),
     VideoSignal("no_face", "Кадрда бет табылмады", "Лицо в кадре не найдено"),
     VideoSignal("no_head_turn", "Басын бұрмады — бет алмастыру бас бұрылғанда бұзылады, сондықтан алаяқтар бұдан қашады", "Не повернул голову — подменённое лицо ломается при повороте, поэтому мошенники этого избегают"),
-    VideoSignal("hand_no_occlusion", "Қол бетті жапқанда да бет «көрініп» тұрды — жасанды бетке тән белгі", "Лицо «видно» даже когда рука его закрывает — признак наложенного лица"),
+    VideoSignal("hand_no_occlusion", "Қолымен бетін жапқан жоқ (немесе бет қол астында да көрініп тұрды) — қайта сұраңыз", "Не закрыл лицо рукой (или лицо было видно и под рукой) — попросите ещё раз"),
     VideoSignal("edge_flicker", "Беттің шеті жыпылықтайды не жылжиды", "Край лица мерцает или сдвигается"),
     VideoSignal("skin_mismatch", "Бет пен мойынның түсі сәйкес емес", "Цвет лица и шеи не совпадает"),
     VideoSignal("hand_behind_face", "Қол беттің алдынан емес, артынан өткендей көрінеді", "Рука проходит как будто за лицом, а не перед ним"),
@@ -34,8 +34,9 @@ private const val MIN_TURN_DEGREES = 25f
 
 /**
  * Turns measured behaviour into an outcome. Never a "deepfake %": the result lists what was seen.
- * A face that stays detected while a hand covers it, or Claude's visual flags, make it SUSPICIOUS;
- * a caller who would not turn their head (or showed no face) did not cooperate.
+ * Only Claude's visual flags make it SUSPICIOUS. A caller who would not turn their head, did not cover
+ * their face, or showed no face did not cooperate: that cannot be told apart from an overlay, so it is
+ * reported as such, not as a verdict.
  */
 fun judge(samples: List<FaceSample>, blackFrames: Boolean, visionFlags: List<String>): Pair<VideoOutcome, List<VideoSignal>> {
     if (blackFrames) return VideoOutcome.NO_IMAGE to listOf(SIGNALS.getValue("no_image"))
@@ -45,13 +46,21 @@ fun judge(samples: List<FaceSample>, blackFrames: Boolean, visionFlags: List<Str
     val yaws = samples.filter { it.step == Step.TURN_LEFT || it.step == Step.TURN_RIGHT }.mapNotNull { it.yaw }
     val turned = yaws.any { it <= -MIN_TURN_DEGREES } && yaws.any { it >= MIN_TURN_DEGREES }
 
+    // The caller's face is the large one; a much smaller face is WhatsApp's own self-view in the corner.
+    val ref = samples.filter { it.step != Step.HAND_OVER_FACE && it.faceFound }.mapNotNull { it.boxArea }.sorted()
+        .let { if (it.isEmpty()) 0f else it[it.size / 2] }
     val hand = samples.filter { it.step == Step.HAND_OVER_FACE }
-    if (hand.size >= 3 && hand.all { it.faceFound }) signals += SIGNALS.getValue("hand_no_occlusion")
+    val callerFaceVisible = { s: FaceSample -> s.faceFound && (s.boxArea ?: 0f) >= ref * 0.5f }
+    val neverCovered = hand.size >= 3 && hand.all(callerFaceVisible)
     visionFlags.distinct().filter { it in VISION_FLAGS }.forEach { signals += SIGNALS.getValue(it) }
 
+    val cooperation = listOfNotNull(
+        if (!turned) SIGNALS.getValue("no_head_turn") else null,
+        if (neverCovered) SIGNALS.getValue("hand_no_occlusion") else null,
+    )
     return when {
-        signals.isNotEmpty() -> VideoOutcome.SUSPICIOUS to (signals + listOfNotNull(if (!turned) SIGNALS.getValue("no_head_turn") else null))
-        !turned -> VideoOutcome.DID_NOT_COOPERATE to listOf(SIGNALS.getValue("no_head_turn"))
+        signals.isNotEmpty() -> VideoOutcome.SUSPICIOUS to (signals + cooperation)
+        cooperation.isNotEmpty() -> VideoOutcome.DID_NOT_COOPERATE to cooperation
         else -> VideoOutcome.LOOKS_NORMAL to emptyList()
     }
 }

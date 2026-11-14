@@ -24,6 +24,8 @@ class GuardAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        // phone permission may be granted after the service connected: keep trying until it is registered
+        watcher?.let { if (!it.started) it.start() }
         val pkg = event?.packageName?.toString() ?: return
         if (pkg !in WHATSAPP_PACKAGES) return
         watcher?.onWhatsAppWindow(pkg, texts(rootInActiveWindow))
