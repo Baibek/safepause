@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { api, fmt } from "./i18n.js";
+import CallGuard, { CALL_T } from "./call/CallGuard.jsx";
+import { STAGES } from "./call/detector.js";
 
 const PRESETS = {
   pNormal: { persona: "aigul", recipient: "family", amount: 15000, on_call: false, unknown_caller: false, remote_app: false, night: false, pace: 45 },
@@ -66,6 +68,32 @@ function Messages({ boot, lang, t }) {
   );
 }
 
+function CallPanel({ state, lang, t }) {
+  const ct = CALL_T[lang];
+  const a = state?.assessment;
+  const level = state?.level || "LOW";
+  const stageName = { AUTHORITY: t.stAuth, THREAT: t.stThreat, REQUEST: t.stRequest, ISOLATION: t.stIso };
+  return (
+    <div className="panel">
+      <h2>{t.callUnder}</h2>
+      <p className="hint">{t.callHint}</p>
+      <div className="risk-row"><span>{t.risk}</span><span className={"risk " + level.toLowerCase()}>{ct.lv[level]}</span></div>
+      <div className="stages">
+        {STAGES.map((st) => <span key={st} className={"stage" + (a?.stages.has(st) ? " on" : "")}>{stageName[st]}</span>)}
+      </div>
+      {a && a.hits.length > 0 ? (
+        <ul className="hits">
+          {a.hits.map((h) => (
+            <li key={h.rule.id}><b>{h.rule[lang]}</b><small>«{h.phrase.text}»{h.rule.critical ? " · " + t.critical : ""}</small></li>
+          ))}
+        </ul>
+      ) : <p className="hint">{t.callEmpty}</p>}
+      {state?.llm && <p className="hint"><b>{ct.claude}:</b> {state.llm.reasons.join("; ")}</p>}
+      <p className="hint small">{t.callRule}</p>
+    </div>
+  );
+}
+
 export default function Client({ boot, lang, t }) {
   const [sc, setSc] = useState(PRESETS.pScam);
   const [screen, setScreen] = useState("home"); // home | checking | dialog | result
@@ -78,7 +106,8 @@ export default function Client({ boot, lang, t }) {
   const [err, setErr] = useState("");
   const [notes, setNotes] = useState([]);
   const [spent, setSpent] = useState({});
-  const [mode, setMode] = useState("transfer"); // transfer | message
+  const [mode, setMode] = useState("call"); // call | transfer | message
+  const [callState, setCallState] = useState(null);
   const chatEnd = useRef(null);
 
   const persona = boot.personas.find((p) => p.id === sc.persona);
@@ -140,7 +169,14 @@ export default function Client({ boot, lang, t }) {
 
   return (
     <main className="client">
-      <section className="panel scenario">
+      {mode === "call" && (
+        <section className="panel scenario">
+          <h2>{t.callHowTitle}</h2>
+          <ol className="how">{t.callHow.map((x, i) => <li key={i}>{x}</li>)}</ol>
+          <p className="hint">{t.callPrivacy}</p>
+        </section>
+      )}
+      <section className="panel scenario" hidden={mode === "call"}>
         <h2>{t.scenario}</h2>
         <p className="hint">{t.scenarioHint}</p>
         <h3>{t.presets}</h3>
@@ -176,7 +212,8 @@ export default function Client({ boot, lang, t }) {
       <section className="phone-wrap">
         <div className="phone">
           <div className="notch" />
-          {sc.on_call && <div className="callbar">● {t.sigCall}{sc.unknown_caller ? " · +7 7•• ••• •• ••" : ""}</div>}
+          {mode === "transfer" && sc.on_call && <div className="callbar">● {t.sigCall}{sc.unknown_caller ? " · +7 7•• ••• •• ••" : ""}</div>}
+          {mode === "call" && <CallGuard lang={lang} onState={setCallState} />}
           {mode === "message" && <Messages boot={boot} lang={lang} t={t} />}
           {mode === "transfer" && screen === "home" && (
             <div className="screen">
@@ -245,8 +282,9 @@ export default function Client({ boot, lang, t }) {
               <button className="primary" onClick={home}>{t.again}</button>
             </div>
           )}
-          {(mode === "message" || screen === "home") && (
-            <nav className="phone-tabs">
+          {(mode === "message" || (mode === "transfer" && screen === "home") || (mode === "call" && (!callState || callState.screen === "pick"))) && (
+            <nav className="phone-tabs three">
+              <button className={mode === "call" ? "on" : ""} onClick={() => setMode("call")}>{t.tabCall}</button>
               <button className={mode === "transfer" ? "on" : ""} onClick={() => setMode("transfer")}>{t.tabTransfer}</button>
               <button className={mode === "message" ? "on" : ""} onClick={() => setMode("message")}>{t.tabMessage}</button>
             </nav>
@@ -255,7 +293,8 @@ export default function Client({ boot, lang, t }) {
       </section>
 
       <section className="side">
-        <div className="panel">
+        {mode === "call" && <CallPanel state={callState} lang={lang} t={t} />}
+        <div className="panel" hidden={mode === "call"}>
           <h2>{t.under}</h2>
           {check ? (
             <>
