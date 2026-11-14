@@ -1,0 +1,95 @@
+/* SafePause deck — one idea per slide, the "pause" bars as the recurring mark.
+   Palette: night navy, mist, sea teal, pause amber; danger red only where something is dangerous. */
+:root {
+  --navy: #14213D;
+  --mist: #EEF1F6;
+  --paper: #FBFCFE;
+  --teal: #0F4C4A;
+  --amber: #E0A526;
+  --red: #C8372D;
+  --ink-soft: #4A556B;
+  --night-soft: #C5CBD8;
+  --line: #D9DFE9;
+  --display: 'Unbounded', Verdana, sans-serif;
+  --text: 'Golos Text', Arial, sans-serif;
+}
+
+body { font-family: var(--text); color: var(--navy); }
+section { counter-increment: page; }
+
+/* backgrounds */
+.s-light { background: var(--mist); color: var(--navy); }
+.s-dark { background: var(--navy); color: var(--paper); }
+.s-amber { background: var(--amber); color: var(--navy); }
+
+/* type scale: 112 / 64 / 44 / 32 / 24 */
+h1 { font-family: var(--display); font-size: 112px; font-weight: 700; line-height: 1.02; letter-spacing: -2px; }
+h2 { font-family: var(--display); font-size: 64px; font-weight: 600; line-height: 1.1; letter-spacing: -1px; }
+h3 { font-family: var(--display); font-size: 32px; font-weight: 600; line-height: 1.2; }
+.lede { font-size: 44px; line-height: 1.25; }
+.body { font-size: 32px; line-height: 1.4; color: var(--ink-soft); }
+.s-dark .body { color: var(--night-soft); }
+.small { font-size: 24px; line-height: 1.4; color: var(--ink-soft); }
+.s-dark .small { color: var(--night-soft); }
+
+/* standard content slide: heading at the top margin, body below */
+.slide { padding: 128px 128px 160px; display: flex; flex-direction: column; gap: 48px; }
+.foot { position: absolute; left: 128px; bottom: 64px; width: 1664px; font-size: 24px; color: var(--ink-soft); display: flex; justify-content: space-between; }
+.s-dark .foot { color: var(--night-soft); }
+
+/* the pause mark */
+.pause { display: flex; gap: 0.36em; }
+.bar { width: 0.32em; height: 1em; border-radius: 0.08em; background: var(--amber); }
+.s-amber .bar { background: var(--navy); }
+
+/* cards */
+.cards { display: flex; gap: 32px; }
+.card { flex: 1; background: var(--paper); border: 1px solid var(--line); border-radius: 28px; padding: 44px; display: flex; flex-direction: column; gap: 20px; }
+.s-dark .card { background: #1C2C4D; border-color: #2B3C61; }
+.card .where { font-size: 24px; font-weight: 600; color: var(--teal); }
+.s-dark .card .where { color: var(--amber); }
+.card .what { font-size: 28px; line-height: 1.4; color: var(--ink-soft); }
+.s-dark .card .what { color: var(--night-soft); }
+
+/* steps: a real sequence */
+.steps { display: flex; gap: 24px; }
+.step { flex: 1; display: flex; flex-direction: column; gap: 16px; border-top: 6px solid var(--navy); padding-top: 28px; }
+.step .n { font-family: var(--display); font-size: 44px; font-weight: 700; color: var(--teal); }
+.step .t { font-size: 30px; line-height: 1.35; }
+.step.money { border-top-color: var(--red); }
+.step.money .n { color: var(--red); }
+
+/* chips for the four stages */
+.chips { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.chip { border-radius: 20px; padding: 22px 26px; background: var(--paper); border: 2px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+.chip b { font-size: 28px; }
+.chip span { font-size: 24px; color: var(--ink-soft); }
+.chip.hot { border-color: var(--red); }
+
+/* phone screenshots */
+.shot { border-radius: 36px; box-shadow: 0 24px 48px rgba(20, 33, 61, 0.22); object-fit: contain; }
+.split { display: flex; gap: 72px; align-items: center; }
+.split .col { flex: 1; display: flex; flex-direction: column; gap: 32px; }
+
+/* numbered points (not a sequence: plain list) */
+.points { display: flex; flex-direction: column; gap: 28px; }
+.point { display: flex; flex-direction: column; gap: 6px; }
+.point b { font-size: 32px; }
+.point span { font-size: 26px; line-height: 1.4; color: var(--ink-soft); }
+.s-dark .point span { color: var(--night-soft); }
+
+/* big numbers */
+.figures { display: grid; grid-template-columns: repeat(4, 1fr); gap: 32px; }
+.figure { display: flex; flex-direction: column; gap: 12px; border-left: 4px solid var(--amber); padding-left: 28px; }
+.figure .v { font-family: var(--display); font-size: 84px; font-weight: 700; line-height: 1; letter-spacing: -3px; }
+.figure .l { font-size: 26px; line-height: 1.35; color: var(--night-soft); }
+
+/* code line */
+.code { font-family: 'Courier New', monospace; font-size: 30px; background: var(--navy); color: var(--paper); border-radius: 18px; padding: 26px 32px; }
+
+/* motion: the cover's pause bars settle in, content slides fade up once */
+@keyframes rise { from { opacity: 0; transform: translateY(24px); } }
+@keyframes grow { from { transform: scaleY(0.2); opacity: 0; } }
+.cover-bars .bar { animation: grow 700ms cubic-bezier(.2,.8,.2,1) both; }
+.cover-bars .bar.b2 { animation-delay: 120ms; }
+.reveal { animation: rise 600ms ease-out both; animation-delay: calc(var(--i, 0) * 120ms); }

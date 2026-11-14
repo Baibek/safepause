@@ -169,7 +169,8 @@ const routes = {
     tx.status = "in_dialog";
     const first = ["scam_call", "on_call", "unknown_caller", "remote_app", "recipient_drop_score", "new_recipient", "amount_ratio"];
     const rank = (f) => (first.includes(f.key) ? first.indexOf(f.key) : 99);
-    const positive = factors.filter((f) => f.contribution > 0).sort((a, c) => rank(a) - rank(c)).slice(0, 3);
+    const telling = (f) => f.contribution > 0 && !(f.key === "amount_ratio" && f.value < 1.5);
+    const positive = factors.filter(telling).sort((a, c) => rank(a) - rank(c)).slice(0, 3);
     let msg = await ask(`${SYSTEM(lang, 3)}Transfer: ${b.amount} KZT to ${rec.account}.\nTop reasons from the risk model (most important first): ${positive.map((f) => f.en).join("; ")}.\nWrite the opening message: say that the transfer is paused for a moment, name the 1-2 most telling reasons in everyday words, and say you will ask a couple of quick questions. Do not ask the questions yourself.`);
     if (!msg) msg = T.opening[lang].replace("{r}", positive.slice(0, 2).map((f) => f[lang][0].toLowerCase() + f[lang].slice(1)).join("; "));
     tx.transcript.push({ from: "bot", text: msg });

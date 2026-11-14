@@ -307,7 +307,7 @@ def check(body: CheckIn):
     tx["status"] = "in_dialog"
     # for the client message, lead with the signals a person can verify themselves
     client_first = ["scam_call", "on_call", "unknown_caller", "remote_app", "recipient_drop_score", "new_recipient", "amount_ratio"]
-    positive = sorted((f for f in factors if f["contribution"] > 0),
+    positive = sorted((f for f in factors if f["contribution"] > 0 and not (f["key"] == "amount_ratio" and f["value"] < 1.5)),
                       key=lambda f: client_first.index(f["key"]) if f["key"] in client_first else 99)[:3]
     msg = llm.opening_message(lang, body.amount, rec["account"], [f["en"] for f in positive])
     if not msg:

@@ -177,7 +177,7 @@ export default function Client({ boot, lang, t }) {
   const guardian = async (id, action) => { await api("/api/guardian/respond", { id, action }); loadNotes(); };
 
   return (
-    <main className="client">
+    <main className="client-view">
       {mode === "call" && (
         <section className="panel scenario">
           <h2>{t.callHowTitle}</h2>

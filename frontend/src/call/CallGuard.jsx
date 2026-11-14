@@ -230,9 +230,9 @@ export default function CallGuard({ lang, onState }) {
       {listening && !warn && !manual && (
         <div className={"strip " + level.toLowerCase()}>
           <b>{t.listening} · {t.lv[level]}</b>
-          {lines.slice(-4).map((l, i) => <span key={i} className={"turn " + l.who}><i>{t.who[l.who]}</i>{cap(l.text)}</span>)}
+          {lines.slice(-4).map((l, i) => <span key={i} className={"turn " + l.who}><i>{t.who[l.who]}</i><span className="tx">{cap(l.text)}</span></span>)}
           {partial && typeof partial === "object"
-            ? <span className={"turn speaking " + partial.who}><i>{t.who[partial.who]} 🔊</i>{partial.text}</span>
+            ? <span className={"turn speaking " + partial.who}><i>{t.who[partial.who]} 🔊</i><span className="tx">{partial.text}</span></span>
             : <em>{partial || (sc.turns ? "" : t.partialHint)}</em>}
         </div>
       )}
