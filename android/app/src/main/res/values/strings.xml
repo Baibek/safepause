@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SafePause</string>
+    <string name="accessibility_description">SafePause қоңырау кезінде микрофонды тыңдау үшін және WhatsApp қоңырауын тану үшін осы рұқсатты қолданады. Дыбыс телефоннан шықпайды. / SafePause использует это разрешение, чтобы слушать микрофон во время звонка и распознавать звонки WhatsApp. Звук не покидает телефон.</string>
+</resources>
