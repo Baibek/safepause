@@ -1,0 +1,8 @@
+{
+  "name": "safepause-web",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "vite", "build": "vite build", "build:virtual": "node build-virtual.mjs" },
+  "dependencies": { "react": "^18.3.1", "react-dom": "^18.3.1", "vis-network": "^9.1.9", "vis-data": "^7.1.9" },
+  "devDependencies": { "@vitejs/plugin-react": "^4.3.4", "vite": "^5.4.11" }
+}
