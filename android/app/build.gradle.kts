@@ -13,6 +13,8 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1"
+        // Phones only: drops the x86/mips copies of the native speech libraries (~40 MB)
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
     buildFeatures { compose = true }
     compileOptions {
