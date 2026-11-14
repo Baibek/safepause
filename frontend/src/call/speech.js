@@ -40,21 +40,54 @@ export async function startListening(lang, { onPartial, onFinal, onError }) {
   return { kind: "dictation", stop: () => { offs.forEach((f) => f()); dictation.stop().catch(() => {}); } };
 }
 
-export function speak(text, lang) {
-  return new Promise((resolve) => {
-    const synth = window.speechSynthesis;
-    const fallback = () => setTimeout(resolve, Math.min(6000, 600 + text.length * 55));
-    if (!synth) return fallback();
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = LOCALE[lang];
-    const voice = synth.getVoices().find((v) => v.lang?.toLowerCase().startsWith(lang));
-    if (!voice) return fallback();            // no voice for this language (often Kazakh): show the line, read silently
-    u.voice = voice;
-    u.rate = 0.95;
+let ttsPromise = null;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function claudeTts() {
+  if (!window.claude?.use) return null;
+  ttsPromise ??= window.claude.use("tts").catch(() => null);
+  return Promise.race([ttsPromise, sleep(1500).then(() => null)]);
+}
+
+async function browserVoices() {
+  const synth = window.speechSynthesis;
+  if (!synth) return [];
+  if (synth.getVoices().length) return synth.getVoices();
+  // voices load asynchronously in Chrome: wait for them once
+  await Promise.race([new Promise((r) => synth.addEventListener("voiceschanged", r, { once: true })), sleep(2000)]);
+  return synth.getVoices();
+}
+
+export function stopSpeaking() {
+  window.speechSynthesis?.cancel();
+  ttsPromise?.then((t) => t?.stop?.()).catch(() => {});
+}
+
+/**
+ * Reads one line aloud. Inside a claude.ai artifact: Claude's own voice (tts capability).
+ * Otherwise the browser's voices; a Kazakh line without a Kazakh voice is read by a Russian voice
+ * (same alphabet), and only a browser with no speech at all shows the line silently.
+ */
+export async function speak(text, lang) {
+  const tts = await claudeTts();
+  if (tts) {
+    try { await tts.speak(text, { language: lang }); return; }
+    catch (e) {
+      if (e?.code === "viewer_stopped") return;
+      try { await tts.speak(text); return; } catch { /* fall back to the browser */ }
+    }
+  }
+  const synth = window.speechSynthesis;
+  const voices = await browserVoices();
+  if (!synth || !voices.length) return sleep(Math.min(6000, 600 + text.length * 55));
+  const pick = (p) => voices.find((v) => v.lang?.toLowerCase().replace("_", "-").startsWith(p));
+  const voice = pick(lang) || pick("ru") || voices[0];
+  const u = new SpeechSynthesisUtterance(text);
+  u.voice = voice; u.lang = voice.lang; u.rate = 0.95;
+  await new Promise((resolve) => {
     let done = false;
     const finish = () => { if (!done) { done = true; resolve(); } };
     u.onend = finish; u.onerror = finish;
-    setTimeout(finish, 1500 + text.length * 120);    // some browsers never fire onend
+    setTimeout(finish, 2000 + text.length * 110);   // some browsers never fire onend
     synth.speak(u);
   });
 }

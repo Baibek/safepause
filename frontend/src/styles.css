@@ -195,3 +195,8 @@ h4.first { margin-top: 6px; }
 .hint.small { font-size: 12px; }
 @media (prefers-reduced-motion: reduce) { .ring, .bubble, .shake { animation: none; } }
 .how { margin: 0; padding-left: 20px; display: grid; gap: 8px; font-size: 14px; }
+.recips.scroll { max-height: 300px; overflow-y: auto; padding-right: 2px; }
+.small-btn { margin-top: 8px; padding: 10px; }
+.live-btn { margin-top: 8px; border: 1px dashed var(--teal); background: var(--teal-soft); color: var(--ink); border-radius: 12px; padding: 10px; font-weight: 600; }
+.truth { font-size: 13px; font-weight: 600; margin: 4px 0; padding: 6px 10px; border-radius: 8px; }
+.truth.ok { background: var(--green-soft); color: var(--green-ink); } .truth.bad { background: var(--red-soft); color: var(--red-ink); }

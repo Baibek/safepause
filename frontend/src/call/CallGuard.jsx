@@ -1,28 +1,26 @@
 import React, { useEffect, useRef, useState } from "react";
 import rulesJson from "../../../shared/call_rules.json";
-import evalCalls from "../../../android/detector/src/test/resources/eval/calls.json";
+import scamCalls from "../../../shared/demo_calls_scam.json";
+import legitCalls from "../../../shared/demo_calls_legit.json";
 import { ScamDetector, loadRules } from "./detector.js";
-import { startListening, speak } from "./speech.js";
+import { startListening, speak, stopSpeaking } from "./speech.js";
 import { askClaude, merge } from "./analyst.js";
 
 const RULES = loadRules(rulesJson);
-const byId = Object.fromEntries(evalCalls.map((c) => [c.id, c]));
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
-
-export const SCENARIOS = [
-  { id: "bank", call: "s01-safe-account-ru", lang: "ru", kind: "phone", caller: "+7 727 ••• •• 14" },
-  { id: "loan", call: "s06-loan-kk", lang: "kk", kind: "phone", caller: "+7 700 ••• •• 52" },
-  { id: "relative", call: "s12-relative-ru", lang: "ru", kind: "phone", caller: "+7 777 ••• •• 08" },
-  { id: "video", call: "s02-safe-account-kk", lang: "kk", kind: "whatsapp", caller: "WhatsApp · +7 705 ••• •• 31" },
-  { id: "normal", call: "n01-bank-reminder-ru", lang: "ru", kind: "phone", caller: "Банк ЦентрКредит" },
-  { id: "live", call: null, lang: null, kind: "phone", caller: "Нақты қоңырау / Реальный звонок" },
+const asScenario = (label) => (c) => ({ ...c, label, kind: "phone" });
+const SCAM = [
+  { ...scamCalls[1], id: "x02-video", label: "scam", kind: "whatsapp", caller: "WhatsApp · " + scamCalls[1].caller, title: "WhatsApp видео: " + scamCalls[1].title },
+  ...scamCalls.map(asScenario("scam")),
 ];
+const LEGIT = legitCalls.map(asScenario("legit"));
+const LIVE = { id: "live", label: null, kind: "phone", caller: "Нақты қоңырау / Реальный звонок", lines: null };
 
 const T = {
   kk: {
     pick: "Қоңырау сценарийі", pickHint: "Алаяқ қоңырауын таңдаңыз — телефон оны дауыстап оқиды. Немесе микрофонмен тірі тексеріңіз.",
-    sc: { bank: "«Банк қауіпсіздік қызметі» (орысша)", loan: "«Атыңызға несие» (қазақша)", relative: "«Мама, бұл мен» (орысша)",
-      video: "WhatsApp видео: «қауіпсіз шот» (қазақша)", normal: "Шынайы банк ескертуі (қалыпты)", live: "Микрофон: нақты сөйлеу" },
+    groups: { scam: "Алаяқтар", legit: "Шын қызметкерлер" }, random: "Кездейсоқ қоңырау", live: "Микрофон: нақты сөйлеу",
+    truth: { scam: "Шындығында: алаяқ", legit: "Шындығында: шын қызметкер" }, verdictOk: "SafePause дұрыс тапты", verdictBad: "SafePause қателесті",
     liveLang: "Сөйлеу тілі", incoming: "Кіріс қоңырау", accept: "Қабылдау", decline: "Қабылдамау",
     bubble: "SafePause: тыңдайын ба?", listening: "SafePause тыңдап тұр", partialHint: "Сөйлеңіз…",
     lv: { LOW: "Қауіп белгісі жоқ", SUSPICIOUS: "Күдікті", HIGH: "АЛАЯҚТЫҚ БЕЛГІЛЕРІ" },
@@ -38,8 +36,8 @@ const T = {
   },
   ru: {
     pick: "Сценарий звонка", pickHint: "Выберите звонок мошенника — телефон прочитает его вслух. Или проверьте вживую через микрофон.",
-    sc: { bank: "«Служба безопасности банка» (рус.)", loan: "«Кредит на ваше имя» (каз.)", relative: "«Мама, это я» (рус.)",
-      video: "Видео WhatsApp: «безопасный счёт» (каз.)", normal: "Настоящее напоминание банка (обычный)", live: "Микрофон: живая речь" },
+    groups: { scam: "Мошенники", legit: "Настоящие сотрудники" }, random: "Случайный звонок", live: "Микрофон: живая речь",
+    truth: { scam: "На самом деле: мошенник", legit: "На самом деле: настоящий сотрудник" }, verdictOk: "SafePause не ошибся", verdictBad: "SafePause ошибся",
     liveLang: "Язык речи", incoming: "Входящий звонок", accept: "Принять", decline: "Отклонить",
     bubble: "SafePause: слушать?", listening: "SafePause слушает", partialHint: "Говорите…",
     lv: { LOW: "Признаков опасности нет", SUSPICIOUS: "Подозрительно", HIGH: "ПРИЗНАКИ МОШЕННИЧЕСТВА" },
@@ -66,6 +64,7 @@ export default function CallGuard({ lang, onState }) {
   const [screen, setScreen] = useState("pick");      // pick | ringing | call | summary
   const [sc, setSc] = useState(null);
   const [liveLang, setLiveLang] = useState("ru");
+  const [group, setGroup] = useState("scam");
   const [listening, setListening] = useState(false);
   const [lines, setLines] = useState([]);
   const [partial, setPartial] = useState("");
@@ -107,7 +106,7 @@ export default function CallGuard({ lang, onState }) {
     setAssessment({ ...a, stages: new Set(a.stages) });
   };
 
-  const stopAll = () => { run.current++; mic.current?.stop(); mic.current = null; window.speechSynthesis?.cancel(); };
+  const stopAll = () => { run.current++; mic.current?.stop(); mic.current = null; stopSpeaking(); };
 
   const choose = (s) => { setSc(s); setScreen("ringing"); setError(""); };
   const accept = () => {
@@ -118,13 +117,12 @@ export default function CallGuard({ lang, onState }) {
 
   const listen = async () => {
     setListening(true);
-    if (sc.call) {                                             // scripted call read aloud
+    if (sc.lines) {                                            // scripted call read aloud
       const my = ++run.current;
-      const phrases = byId[sc.call].phrases;
-      for (const p of phrases) {
+      for (const p of sc.lines) {
         if (run.current !== my) return;
-        setPartial(cap(p));
-        await speak(cap(p), sc.lang);
+        setPartial(p);
+        await speak(p, sc.lang);
         if (run.current !== my) return;
         setPartial("");
         feed(p, sc.lang);
@@ -151,13 +149,18 @@ export default function CallGuard({ lang, onState }) {
     <div className="screen">
       <h4 className="first">{t.pick}</h4>
       <p className="hint">{t.pickHint}</p>
-      <div className="recips">
-        {SCENARIOS.map((s) => (
-          <button key={s.id} onClick={() => choose(s)}>
-            <b>{t.sc[s.id]}</b><small>{s.id === "normal" ? "✓" : s.id === "live" ? "🎙" : "⚠"} {s.caller}</small>
+      <div className="seg">
+        {["scam", "legit"].map((g) => <button key={g} className={group === g ? "on" : ""} onClick={() => setGroup(g)}>{t.groups[g]} · {(g === "scam" ? scamCalls : legitCalls).length}</button>)}
+      </div>
+      <button className="primary small-btn" onClick={() => { const list = group === "scam" ? SCAM : LEGIT; choose(list[Math.floor(Math.random() * list.length)]); }}>{t.random}</button>
+      <div className="recips scroll">
+        {(group === "scam" ? SCAM : LEGIT).map((c) => (
+          <button key={c.id} onClick={() => choose(c)}>
+            <b>{c.title}</b><small>{c.lang === "kk" ? "ҚАЗ" : "РУС"} · {c.caller}</small>
           </button>
         ))}
       </div>
+      <button className="live-btn" onClick={() => choose(LIVE)}>🎙 {t.live}</button>
       <label className="lbl" htmlFor="live-lang">{t.liveLang}</label>
       <div className="seg">
         {["kk", "ru"].map((l) => <button key={l} id={l === "kk" ? "live-lang" : undefined} className={liveLang === l ? "on" : ""} onClick={() => setLiveLang(l)}>{l === "kk" ? "Қазақша" : "Русский"}</button>)}
@@ -181,6 +184,11 @@ export default function CallGuard({ lang, onState }) {
     <div className="screen">
       <h4 className="first">{t.summary}</h4>
       <span className={"risk " + level.toLowerCase()}>{t.lv[level]}</span>
+      {sc.label && (
+        <p className={"truth " + ((sc.label === "scam") === (level === "HIGH") ? "ok" : "bad")}>
+          {t.truth[sc.label]} · {(sc.label === "scam") === (level === "HIGH") ? t.verdictOk : t.verdictBad}
+        </p>
+      )}
       {reasons.length > 0 && <><span className="lbl">{t.why}</span><ul className="why">{reasons.map((r, i) => <li key={i}>{r}</li>)}</ul></>}
       {llm && <p className="hint">{t.claude}: {llm.reasons.join("; ")}</p>}
       <span className="lbl">{t.transcript}</span>
@@ -203,7 +211,7 @@ export default function CallGuard({ lang, onState }) {
         <div className={"strip " + level.toLowerCase()}>
           <b>{t.listening} · {t.lv[level]}</b>
           {lines.slice(-3).map((l, i) => <span key={i}>{cap(l)}</span>)}
-          <em>{partial || (sc.call ? "" : t.partialHint)}</em>
+          <em>{partial || (sc.lines ? "" : t.partialHint)}</em>
         </div>
       )}
       {!listening && <p className="hint light">{t.noSpeech}</p>}

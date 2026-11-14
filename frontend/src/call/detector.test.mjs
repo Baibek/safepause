@@ -54,3 +54,15 @@ test("Claude merge: one step up at most, never down", async () => {
   assert.equal(merge("HIGH", "LOW"), "HIGH");
   assert.equal(merge("LOW", null), "LOW");
 });
+
+test("100 demo calls (50 scam, 50 real staff): every scam HIGH, no real call HIGH", () => {
+  const load = (f) => JSON.parse(readFileSync(new URL(`../../../shared/${f}`, import.meta.url)));
+  for (const [file, scam] of [["demo_calls_scam.json", true], ["demo_calls_legit.json", false]]) {
+    const list = load(file);
+    assert.equal(list.length, 50);
+    for (const c of list) {
+      const level = run(...c.lines.map((t, i) => ({ text: t, atMs: i * 4000, source: c.lang }))).level;
+      if (scam) assert.equal(level, "HIGH", c.id); else assert.notEqual(level, "HIGH", c.id);
+    }
+  }
+});
