@@ -16,6 +16,9 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import kotlin.concurrent.thread
+import kotlinx.coroutines.runBlocking
+import kz.safepause.guard.speech.DualRecognizer
+import kz.safepause.guard.speech.ModelManager
 import kotlin.math.sqrt
 
 /**
@@ -26,6 +29,8 @@ import kotlin.math.sqrt
 class ProbeActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var bar: ProgressBar
+    private lateinit var transcript: TextView
+    private val models by lazy { ModelManager(filesDir) }
     @Volatile private var running = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -46,11 +51,20 @@ class ProbeActivity : Activity() {
                 setOnClickListener { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
             })
             addView(Button(context).apply {
+                text = "Модельдерді жүктеу / Скачать модели (~90 MB)"
+                setOnClickListener {
+                    status.text = "Downloading…"
+                    thread { runBlocking { models.ensure() }; runOnUiThread { status.text = "Models: ${models.state.value}" } }
+                }
+            })
+            addView(Button(context).apply {
                 text = "Probe 10 s"
                 setOnClickListener { probe() }
             })
             addView(bar)
             addView(status)
+            transcript = TextView(context).apply { textSize = 15f; setTextColor(Color.parseColor("#0f4c4a")) }
+            addView(transcript)
         }
         root.gravity = Gravity.TOP
         setContentView(root)
@@ -72,6 +86,9 @@ class ProbeActivity : Activity() {
                 AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, size)
             val buf = ShortArray(rate / 10)
             var max = 0.0
+            val recognizer = if (models.ready()) DualRecognizer(
+                models.modelDir(ModelManager.MODELS[0])!!, models.modelDir(ModelManager.MODELS[1])!!) else null
+            val heard = StringBuilder(if (recognizer == null) "(модельдер жүктелмеген / модели не скачаны)\n" else "")
             try {
                 rec.startRecording()
                 val end = System.currentTimeMillis() + 10_000
@@ -82,12 +99,18 @@ class ProbeActivity : Activity() {
                     for (i in 0 until n) sum += buf[i].toDouble() * buf[i]
                     val rms = sqrt(sum / n)
                     if (rms > max) max = rms
-                    runOnUiThread { bar.progress = rms.toInt(); status.text = "RMS ${rms.toInt()} · max ${max.toInt()}" }
+                    recognizer?.accept(buf, n)?.forEach { heard.append("[${it.source}] ${it.text}\n") }
+                    val live = recognizer?.partial().orEmpty()
+                    runOnUiThread {
+                        bar.progress = rms.toInt(); status.text = "RMS ${rms.toInt()} · max ${max.toInt()}"
+                        transcript.text = heard.toString() + live
+                    }
                 }
             } catch (e: Exception) {
                 runOnUiThread { status.text = "Error: ${e.message}" }
             } finally {
                 rec.release()
+                recognizer?.close()
                 running = false
                 val verdict = if (max < 60) "Тыныштық — микрофон бөгелген болуы мүмкін / Тишина — микрофон, вероятно, заблокирован"
                               else "Дыбыс бар / Звук есть"
