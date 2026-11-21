@@ -140,25 +140,37 @@ const routes = {
     const feats = buildFeatures({ amount: b.amount, avg: persona.avg_amount, balance: persona.balance, newRecipient: !rec.known,
       hour: s.hour ?? new Date(Date.now() + 5 * 3600000).getUTCHours(), onCall: s.on_call, unknown: s.unknown_caller, remote: s.remote_app,
       session: s.session_seconds ?? 45, age: persona.age, recAge: rec.age_days, drop: drop ? drop.score : 0.05 });
-    const { risk, contrib } = explain(data, feats);
-    const lvl = levelOf(risk), id = `TX-${uid(6)}`, factors = factorsFor(feats, contrib);
+    let { risk, contrib } = explain(data, feats);
+    const id = `TX-${uid(6)}`, factors = factorsFor(feats, contrib);
+    // same rule as backend/main.py: a scam call flagged on this phone within the hour pauses any transfer
+    const scamCall = s.scam_call_minutes != null && s.scam_call_minutes >= 0 && s.scam_call_minutes <= 60;
+    if (scamCall) {
+      const m = Math.round(s.scam_call_minutes);
+      factors.unshift({ key: "scam_call", contribution: 5, value: m,
+        kk: `${m < 1 ? "Жаңа ғана" : `${m} минут бұрын`} телефоныңызда алаяқтық белгілері бар қоңырау анықталды`,
+        ru: `${m < 1 ? "Только что" : `${m} мин назад`} на вашем телефоне распознан звонок с признаками мошенничества`,
+        en: `SafePause flagged a scam phone call on this device ${m} minutes ago` });
+      risk = Math.max(risk, 0.95);
+    }
+    const lvl = levelOf(risk);
     const tx = { id, time: iso(), client: persona.name, age: persona.age, persona: persona.id, recipient: rec.account, amount: b.amount,
       risk: Math.round(risk * 1000) / 1000, level: lvl, status: "approved", paused: lvl !== "low", factors, transcript: [], guardian: null,
-      live: true, risky: [], drop_network: drop ? drop.network : null };
+      live: true, risky: [], drop_network: drop ? drop.network : null, scam_call: scamCall };
     TX.set(id, tx);
     const resp = { tx_id: id, risk: tx.risk, level: lvl, factors, action: "approve" };
     if (lvl === "low") return resp;
 
     const queue = [];
-    if (s.on_call || lvl === "high") queue.push("call");
+    if (s.on_call || lvl === "high" || scamCall) queue.push("call");
     if (s.remote_app) queue.push("remote");
     if (lvl === "high") queue.push("safe");
     if (!rec.known) queue.push("known");
     tx.queue = queue.length ? queue : ["call"];
     tx.status = "in_dialog";
-    const first = ["on_call", "unknown_caller", "remote_app", "recipient_drop_score", "new_recipient", "amount_ratio"];
+    const first = ["scam_call", "on_call", "unknown_caller", "remote_app", "recipient_drop_score", "new_recipient", "amount_ratio"];
     const rank = (f) => (first.includes(f.key) ? first.indexOf(f.key) : 99);
-    const positive = factors.filter((f) => f.contribution > 0).sort((a, c) => rank(a) - rank(c)).slice(0, 3);
+    const telling = (f) => f.contribution > 0 && !(f.key === "amount_ratio" && f.value < 1.5);
+    const positive = factors.filter(telling).sort((a, c) => rank(a) - rank(c)).slice(0, 3);
     let msg = await ask(`${SYSTEM(lang, 3)}Transfer: ${b.amount} KZT to ${rec.account}.\nTop reasons from the risk model (most important first): ${positive.map((f) => f.en).join("; ")}.\nWrite the opening message: say that the transfer is paused for a moment, name the 1-2 most telling reasons in everyday words, and say you will ask a couple of quick questions. Do not ask the questions yourself.`);
     if (!msg) msg = T.opening[lang].replace("{r}", positive.slice(0, 2).map((f) => f[lang][0].toLowerCase() + f[lang].slice(1)).join("; "));
     tx.transcript.push({ from: "bot", text: msg });
@@ -170,7 +182,14 @@ const routes = {
   async "/api/dialog/answer"(b) {
     const tx = TX.get(b.tx_id);
     if (!tx || tx.status !== "in_dialog") throw fail(404, "no active dialog for this transfer");
-    const lang = b.lang === "ru" ? "ru" : "kk", key = tx.queue[0], q = questions[key], raw = String(b.answer).trim();
+    const lang = b.lang === "ru" ? "ru" : "kk";
+    // decisions taken on the app's fraud-warning screen instead of answering the questions (same as backend/main.py)
+    if (b.answer === "cancel" || b.answer === "delay") {
+      tx.transcript.push({ from: "client", text: { cancel: { kk: "Аударымнан бас тарттым", ru: "Отменил перевод" },
+        delay: { kk: "Кейінге қалдырдым", ru: "Отложил перевод" } }[b.answer][lang] });
+      return finish(tx, b.answer === "cancel" ? "cancelled" : "delayed", lang);
+    }
+    const key = tx.queue[0], q = questions[key], raw = String(b.answer).trim();
     let verdict = raw;
     if (raw !== "yes" && raw !== "no") {
       const out = await ask(`You classify a bank client's free-text reply (Kazakh or Russian) to a yes/no question. Reply with exactly one word: yes, no, or unclear.\n\nQuestion: ${q.ru}\nReply: ${raw.slice(0, 500)}`);

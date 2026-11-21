@@ -1,0 +1,97 @@
+package kz.safepause.detector
+
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.jsonPrimitive
+import kotlin.math.abs
+
+/** The guided steps of the face check, in order. */
+enum class Step { TURN_LEFT, TURN_RIGHT, HAND_OVER_FACE, CLOSER }
+
+/** One analysed video frame: whether a face was found, its head yaw in degrees and box area as a share of the frame. */
+data class FaceSample(val atMs: Long, val step: Step, val faceFound: Boolean, val yaw: Float?, val boxArea: Float?)
+
+enum class VideoOutcome { LOOKS_NORMAL, SUSPICIOUS, DID_NOT_COOPERATE, NO_IMAGE }
+
+data class VideoSignal(val id: String, val kk: String, val ru: String)
+
+private val SIGNALS = listOf(
+    VideoSignal("no_image", "WhatsApp видеоны түсіруге тыйым салады — «Қолмен тексеру» батырмасын басыңыз", "WhatsApp запрещает снимать видео — нажмите «Проверить вручную»"),
+    VideoSignal("refused", "Тапсырманы орындаудан бас тартты", "Отказался выполнять просьбы"),
+    VideoSignal("no_face", "Кадрда бет табылмады", "Лицо в кадре не найдено"),
+    VideoSignal("no_head_turn", "Басын бұрмады — бет алмастыру бас бұрылғанда бұзылады, сондықтан алаяқтар бұдан қашады", "Не повернул голову — подменённое лицо ломается при повороте, поэтому мошенники этого избегают"),
+    VideoSignal("hand_no_occlusion", "Қолымен бетін жапқан жоқ (немесе бет қол астында да көрініп тұрды) — қайта сұраңыз", "Не закрыл лицо рукой (или лицо было видно и под рукой) — попросите ещё раз"),
+    VideoSignal("edge_flicker", "Беттің шеті жыпылықтайды не жылжиды", "Край лица мерцает или сдвигается"),
+    VideoSignal("skin_mismatch", "Бет пен мойынның түсі сәйкес емес", "Цвет лица и шеи не совпадает"),
+    VideoSignal("hand_behind_face", "Қол беттің алдынан емес, артынан өткендей көрінеді", "Рука проходит как будто за лицом, а не перед ним"),
+    VideoSignal("frozen_expression", "Бет әлпеті қатып қалған, ерін сөзге сай қозғалмайды", "Мимика застывшая, губы не совпадают с речью"),
+    VideoSignal("blur_on_face_only", "Тек бет бұлыңғыр, қалғаны анық", "Размыто только лицо, остальное чёткое"),
+).associateBy { it.id }
+
+/** Flags Claude may return for the frames; anything else is ignored. */
+val VISION_FLAGS = listOf("edge_flicker", "skin_mismatch", "hand_behind_face", "frozen_expression", "blur_on_face_only")
+
+private const val MIN_TURN_DEGREES = 25f
+
+/**
+ * Turns measured behaviour into an outcome. Never a "deepfake %": the result lists what was seen.
+ * Only Claude's visual flags make it SUSPICIOUS. A caller who would not turn their head, did not cover
+ * their face, or showed no face did not cooperate: that cannot be told apart from an overlay, so it is
+ * reported as such, not as a verdict.
+ */
+fun judge(samples: List<FaceSample>, blackFrames: Boolean, visionFlags: List<String>): Pair<VideoOutcome, List<VideoSignal>> {
+    if (blackFrames) return VideoOutcome.NO_IMAGE to listOf(SIGNALS.getValue("no_image"))
+    if (samples.none { it.faceFound }) return VideoOutcome.DID_NOT_COOPERATE to listOf(SIGNALS.getValue("no_face"))
+
+    val signals = mutableListOf<VideoSignal>()
+    val yaws = samples.filter { it.step == Step.TURN_LEFT || it.step == Step.TURN_RIGHT }.mapNotNull { it.yaw }
+    val turned = yaws.any { it <= -MIN_TURN_DEGREES } && yaws.any { it >= MIN_TURN_DEGREES }
+
+    // The caller's face is the large one; a much smaller face is WhatsApp's own self-view in the corner.
+    val ref = samples.filter { it.step != Step.HAND_OVER_FACE && it.faceFound }.mapNotNull { it.boxArea }.sorted()
+        .let { if (it.isEmpty()) 0f else it[it.size / 2] }
+    val hand = samples.filter { it.step == Step.HAND_OVER_FACE }
+    val callerFaceVisible = { s: FaceSample -> s.faceFound && (s.boxArea ?: 0f) >= ref * 0.5f }
+    val neverCovered = hand.size >= 3 && hand.all(callerFaceVisible)
+    visionFlags.distinct().filter { it in VISION_FLAGS }.forEach { signals += SIGNALS.getValue(it) }
+
+    val cooperation = listOfNotNull(
+        if (!turned) SIGNALS.getValue("no_head_turn") else null,
+        if (neverCovered) SIGNALS.getValue("hand_no_occlusion") else null,
+    )
+    return when {
+        signals.isNotEmpty() -> VideoOutcome.SUSPICIOUS to (signals + cooperation)
+        cooperation.isNotEmpty() -> VideoOutcome.DID_NOT_COOPERATE to cooperation
+        else -> VideoOutcome.LOOKS_NORMAL to emptyList()
+    }
+}
+
+/** Reads a JSON array of flags from Claude's reply (bare or fenced); keeps only the known vocabulary. */
+fun parseVisionFlags(text: String): List<String> {
+    val a = text.indexOf('['); val b = text.lastIndexOf(']')
+    if (a < 0 || b <= a) return emptyList()
+    val arr = runCatching { Json.parseToJsonElement(text.substring(a, b + 1)) as? JsonArray }.getOrNull() ?: return emptyList()
+    return arr.mapNotNull { runCatching { it.jsonPrimitive.content }.getOrNull() }.filter { it in VISION_FLAGS }.distinct()
+}
+
+/** Every face with |yaw| at least this far counts as turned (exposed for the capture code's step pacing). */
+fun turnedEnough(yaw: Float?) = yaw != null && abs(yaw) >= MIN_TURN_DEGREES
+
+/** The manual face check, asked in this order after the guided steps (used when the screen cannot be captured). */
+enum class ManualQuestion { REFUSED, DISTORTED_ON_TURN, HAND_GLITCH, LIPS_OUT_OF_SYNC }
+
+/** What the client saw → the same outcome and signals as the automatic check. "Yes" means the thing was seen. */
+fun judgeManual(answers: Map<ManualQuestion, Boolean>): Pair<VideoOutcome, List<VideoSignal>> {
+    val seen = { q: ManualQuestion -> answers[q] == true }
+    val signals = buildList {
+        if (seen(ManualQuestion.DISTORTED_ON_TURN)) add(SIGNALS.getValue("edge_flicker"))
+        if (seen(ManualQuestion.HAND_GLITCH)) add(SIGNALS.getValue("hand_behind_face"))
+        if (seen(ManualQuestion.LIPS_OUT_OF_SYNC)) add(SIGNALS.getValue("frozen_expression"))
+    }
+    val refused = if (seen(ManualQuestion.REFUSED)) listOf(SIGNALS.getValue("refused")) else emptyList()
+    return when {
+        signals.isNotEmpty() -> VideoOutcome.SUSPICIOUS to (signals + refused)
+        refused.isNotEmpty() -> VideoOutcome.DID_NOT_COOPERATE to refused
+        else -> VideoOutcome.LOOKS_NORMAL to emptyList()
+    }
+}

@@ -80,7 +80,7 @@ export default function Analyst({ lang, t }) {
                 {dash.transactions.map((x) => (
                   <tr key={x.id} className={(tx && tx.id === x.id ? "sel " : "") + (x.live ? "live" : "")} onClick={() => setSel(x.id)}>
                     <td>{x.time.slice(11, 16)}</td>
-                    <td>{x.client}{x.live && <span className="tag">{t.live}</span>}</td>
+                    <td>{x.client}{x.live && <span className="tag">{t.live}</span>}{x.scam_call && <span className="tag hot">☎ {t.callTag}</span>}</td>
                     <td className="num">{fmt(x.amount)}</td>
                     <td>{x.recipient}</td>
                     <td><span className="mini"><i className={x.level} style={{ width: `${Math.max(x.risk * 100, 3)}%` }} /></span>{Math.round(x.risk * 100)}%</td>
