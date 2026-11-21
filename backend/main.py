@@ -326,6 +326,11 @@ def answer(body: AnswerIn):
     if not tx or tx["status"] != "in_dialog":
         raise HTTPException(404, "no active dialog for this transfer")
     lang = body.lang if body.lang in ("kk", "ru") else "kk"
+    # decisions taken on the app's fraud-warning screen instead of answering the questions
+    if body.answer in ("cancel", "delay"):
+        tx["transcript"].append({"from": "client", "text": {"cancel": {"kk": "Аударымнан бас тарттым", "ru": "Отменил перевод"},
+                                                           "delay": {"kk": "Кейінге қалдырдым", "ru": "Отложил перевод"}}[body.answer][lang]})
+        return finish(tx, "cancelled" if body.answer == "cancel" else "delayed", lang)
     key = tx["queue"][0]
     q = QUESTIONS[key]
     raw = body.answer.strip()

@@ -2,6 +2,9 @@ import React, { useEffect, useRef, useState } from "react";
 import { api, fmt } from "./i18n.js";
 import CallGuard, { CALL_T } from "./call/CallGuard.jsx";
 import TransferSection from "./transfer/TransferSection.jsx";
+import PhoneFrame, { TabBar } from "./phone/PhoneFrame.jsx";
+import { PH } from "./phone/strings.js";
+import { HomeScreen, AnalysisScreen, WarningScreen, DialogScreen, ResultScreen, GuardianScreen, HistoryScreen, MessagesScreen } from "./phone/screens.jsx";
 import { STAGES } from "./call/detector.js";
 
 const PRESETS = {
@@ -32,43 +35,6 @@ export function RiskBadge({ risk, level, t }) {
   return <span className={"risk " + level}>{Math.round(risk * 100)}% · {t[level]}</span>;
 }
 
-function Messages({ boot, lang, t }) {
-  const [text, setText] = useState("");
-  const [res, setRes] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const run = async (value = text) => {
-    if (!value.trim() || busy) return;
-    setBusy(true); setRes(null);
-    try { setRes(await api("/api/message/check", { text: value, lang })); } catch (e) { setRes({ error: String(e.message) }); }
-    setBusy(false);
-  };
-  return (
-    <div className="screen">
-      <h4 className="first">{t.msgTitle}</h4>
-      <p className="hint">{t.msgHint}</p>
-      <textarea id="msg-text" className="msg-input" rows="5" value={text} placeholder={t.msgPlaceholder}
-        onChange={(e) => { setText(e.target.value); setRes(null); }} />
-      <span className="lbl">{t.msgSamples}</span>
-      <div className="chips">
-        {boot.samples.map((s, i) => (
-          <button key={i} onClick={() => { setText(s[lang]); run(s[lang]); }}>{t.msgSample[i]}</button>
-        ))}
-      </div>
-      {busy && <p className="hint">{t.msgChecking}</p>}
-      {res && !res.error && (
-        <div className={"outcome " + { scam: "cancelled", suspicious: "delayed", safe: "approved" }[res.verdict]}>
-          <b>{t.verdict[res.verdict]}</b>
-          {res.reasons.length > 0 && <ul>{res.reasons.map((r, i) => <li key={i}>{r}</li>)}</ul>}
-          <span>{res.advice}</span>
-          <span className="tag">{t.msgBy[res.source]}</span>
-        </div>
-      )}
-      {res?.error && <p className="error">{res.error}</p>}
-      <button className="primary" disabled={!text.trim() || busy} onClick={() => run()}>{t.msgCheck}</button>
-    </div>
-  );
-}
-
 function CallPanel({ state, lang, t }) {
   const ct = CALL_T[lang];
   const a = state?.assessment;
@@ -97,18 +63,20 @@ function CallPanel({ state, lang, t }) {
 
 export default function Client({ boot, lang, t }) {
   const [sc, setSc] = useState(PRESETS.pScam);
-  const [screen, setScreen] = useState("home"); // home | checking | dialog | result
+  // phone app navigation: a tab, and inside "transfer" the step of the flow
+  const [tab, setTab] = useState("home");          // home | transfer | call | messages | history | guardian
+  const [flow, setFlow] = useState("form");        // form | analysis | warning | dialog | result
   const [check, setCheck] = useState(null);
   const [chat, setChat] = useState([]);
-  const [question, setQuestion] = useState(null);
   const [final, setFinal] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [text, setText] = useState("");
   const [err, setErr] = useState("");
   const [notes, setNotes] = useState([]);
   const [spent, setSpent] = useState({});
-  const [mode, setMode] = useState("call"); // call | transfer | message
+  const [history, setHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [tStep, setTStep] = useState("menu"); // transfers section: menu of transfer types | form
+  const P = PH[lang];
   const [callState, setCallState] = useState(null);
   const [scamCallAt, setScamCallAt] = useState(null);   // set when Call Guard flags a call: the bank app pauses transfers for an hour
   useEffect(() => {
@@ -117,7 +85,6 @@ export default function Client({ boot, lang, t }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const i = setInterval(() => setNow(Date.now()), 15000); return () => clearInterval(i); }, []);
   const scamCallMinutes = scamCallAt && now - scamCallAt <= 3600_000 ? Math.max(0, (now - scamCallAt) / 60000) : null;
-  const chatEnd = useRef(null);
 
   const persona = boot.personas.find((p) => p.id === sc.persona);
   const rec = boot.recipients.find((r) => r.id === sc.recipient);
@@ -126,13 +93,24 @@ export default function Client({ boot, lang, t }) {
 
   const loadNotes = () => api("/api/guardian/notifications").then(setNotes).catch(() => {});
   useEffect(() => { loadNotes(); const i = setInterval(loadNotes, 3000); return () => clearInterval(i); }, []);
-  useEffect(() => { chatEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [chat, busy]);
+  // the client's own transfers, newest first, from the same feed the analyst sees
+  const loadHistory = () => {
+    setHistoryLoading(true);
+    return api("/api/dashboard")
+      .then((d) => setHistory(d.transactions.filter((x) => x.live && x.client === persona.name)))
+      .catch(() => {}).finally(() => setHistoryLoading(false));
+  };
+  useEffect(() => { if (tab === "home" || tab === "history") loadHistory(); }, [tab, persona.name, final]);
 
-  const home = () => { setScreen("home"); setCheck(null); setChat([]); setQuestion(null); setFinal(null); setErr(""); };
-  const applyPreset = (k) => { home(); setMode("transfer"); setTStep("form"); setSc({ ttype: "phone", ...PRESETS[k] }); };
+  const resetFlow = () => { setFlow("form"); setCheck(null); setChat([]); setFinal(null); setErr(""); setBusy(false); };
+  const go = (to) => { if (to === "transfer") { resetFlow(); setTStep("menu"); } setTab(to); };
+  const goHome = () => { resetFlow(); setTStep("menu"); setTab("home"); };
+  const applyPreset = (k) => { resetFlow(); setTab("transfer"); setTStep("form"); setSc({ ttype: "phone", ...PRESETS[k] }); };
+  const mode = tab === "call" ? "call" : tab === "messages" ? "message" : "transfer";
+  const addSpent = () => setSpent((s) => ({ ...s, [sc.persona]: (s[sc.persona] || 0) + Number(sc.amount) }));
 
   const send = async () => {
-    setErr(""); setScreen("checking");
+    setErr(""); setCheck(null); setFinal(null); setChat([]); setFlow("analysis");
     try {
       const [res] = await Promise.all([
         api("/api/transfer/check", {
@@ -140,38 +118,37 @@ export default function Client({ boot, lang, t }) {
           signals: { on_call: sc.on_call, unknown_caller: sc.unknown_caller, remote_app: sc.remote_app,
             hour: sc.night ? 2 : null, session_seconds: sc.pace, scam_call_minutes: scamCallMinutes },
         }),
-        new Promise((r) => setTimeout(r, 900)),
+        new Promise((r) => setTimeout(r, 1100)),   // let the scan read as a scan
       ]);
       setCheck(res);
-      if (res.action === "approve") {
-        setFinal({ decision: "approved" });
-        setSpent((s) => ({ ...s, [sc.persona]: (s[sc.persona] || 0) + Number(sc.amount) }));
-        setScreen("result");
-      } else {
-        setChat([{ from: "bot", text: res.message }, { from: "bot", text: res.question.text }]);
-        setQuestion(res.question); setScreen("dialog");
-      }
-    } catch (e) { setErr(String(e.message)); setScreen("home"); }
+      if (res.action === "approve") addSpent();    // approved by the bank already: the analysis screen shows it
+    } catch (e) { setErr(String(e.message)); setFlow("form"); }
   };
 
+  // the client's decision on the warning screen, or an answer to the assistant's question
   const answer = async (value, shown) => {
     if (busy || !value) return;
-    setBusy(true); setText("");
-    setChat((c) => [...c, { from: "client", text: shown }]);
+    setBusy(true);
+    if (shown) setChat((c) => [...c, { from: "client", text: shown }]);
     try {
       const res = await api("/api/dialog/answer", { tx_id: check.tx_id, answer: value, lang });
       const add = [];
       if (res.message) add.push({ from: "bot", text: res.message });
       if (res.question && !res.final) add.push({ from: "bot", text: res.question.text });
       setChat((c) => [...c, ...add]);
-      setQuestion(res.final ? null : res.question || question);
       if (res.final) {
         setFinal(res.final);
-        if (res.final.decision === "approved") setSpent((s) => ({ ...s, [sc.persona]: (s[sc.persona] || 0) + Number(sc.amount) }));
+        if (res.final.decision === "approved") addSpent();
         loadNotes();
       }
-    } catch (e) { setChat((c) => [...c, { from: "bot", text: String(e.message) }]); }
-    setBusy(false);
+      return res;
+    } catch (e) { setChat((c) => [...c, { from: "bot", text: String(e.message) }]); setErr(String(e.message)); }
+    finally { setBusy(false); }
+  };
+  const decide = async (value) => { const r = await answer(value, null); if (r?.final) setFlow("result"); };
+  const openDialog = () => {
+    setChat([{ from: "bot", text: check.message }, { from: "bot", text: check.question.text }]);
+    setFlow("dialog");
   };
 
   const guardian = async (id, action) => { await api("/api/guardian/respond", { id, action }); loadNotes(); };
@@ -197,7 +174,7 @@ export default function Client({ boot, lang, t }) {
         <h3>{t.client}</h3>
         <div className="seg">
           {boot.personas.map((p) => (
-            <button key={p.id} className={sc.persona === p.id ? "on" : ""} onClick={() => { home(); set({ persona: p.id }); }}>
+            <button key={p.id} className={sc.persona === p.id ? "on" : ""} onClick={() => { goHome(); set({ persona: p.id }); }}>
               {p.name.split(" ")[0]}, {p.age} {t.years}
             </button>
           ))}
@@ -219,74 +196,69 @@ export default function Client({ boot, lang, t }) {
       </section>
 
       <section className="phone-wrap">
-        <div className="phone">
-          <div className="notch" />
-          {mode === "transfer" && sc.on_call && <div className="callbar">● {t.sigCall}{sc.unknown_caller ? " · +7 7•• ••• •• ••" : ""}</div>}
-          {mode === "call" && <CallGuard lang={lang} onState={setCallState} />}
-          {mode === "message" && <Messages boot={boot} lang={lang} t={t} />}
-          {mode === "transfer" && screen === "home" && (
-            <TransferSection step={tStep} setStep={setTStep} boot={boot} lang={lang} t={t} persona={persona} balance={balance}
-              sc={sc} set={set} onSend={send} err={err}
-              alert={scamCallMinutes != null && (
-                <div className="call-alert" role="status">
-                  <b>⚠ {t.callAlert(Math.round(scamCallMinutes))}</b>
-                  <span>{t.callAlertSub}</span>
-                  <button onClick={() => setScamCallAt(null)}>{t.callAlertOk}</button>
-                </div>
-              )} />
-          )}
-          {mode === "transfer" && screen === "checking" && (
-            <div className="screen center"><div className="pulse"><i /><i /></div><p>{t.checking}</p></div>
-          )}
-          {mode === "transfer" && screen === "dialog" && (
-            <div className="screen dialog">
-              <div className="dlg-head">
-                <span className="logo sm" aria-hidden="true"><i /><i /></span>
-                <div><b>{t.assistant}</b><small>{t.paused} · {fmt(sc.amount)} ₸</small></div>
-              </div>
-              <div className="chat">
-                {chat.map((m, i) => <div key={i} className={"msg " + m.from}>{m.text}</div>)}
-                {busy && <div className="msg bot typing"><i /><i /><i /></div>}
-                {final && (
-                  <div className={"outcome " + final.decision}>
-                    <b>{final.decision === "approved" ? t.rApproved : final.decision === "cancelled" ? t.rCancelled : t.rDelayed}</b>
-                    {final.decision === "delayed" && <span>{t.rDelayedSub(final.delay_minutes)}</span>}
-                    {final.decision === "cancelled" && <span>{t.rCancelledSub}</span>}
-                    {final.guardian_notified && <span className="tag">{t.guardianBadge}</span>}
-                  </div>
-                )}
-                <div ref={chatEnd} />
-              </div>
-              {!final ? (
-                <div className="reply">
-                  <div className="yn">
-                    <button disabled={busy} onClick={() => answer("yes", t.yes)}>{t.yes}</button>
-                    <button disabled={busy} onClick={() => answer("no", t.no)}>{t.no}</button>
-                  </div>
-                  <form onSubmit={(e) => { e.preventDefault(); answer(text.trim(), text.trim()); }}>
-                    <input value={text} onChange={(e) => setText(e.target.value)} placeholder={t.typeAnswer} />
-                    <button disabled={busy || !text.trim()} aria-label="send">➜</button>
-                  </form>
-                </div>
-              ) : <button className="primary" onClick={home}>{t.again}</button>}
+        {(() => {
+          const inCall = tab === "call" && callState && callState.screen === "call";
+          const callPill = inCall ? { key: "guard", label: P.tabs.call }
+            : tab === "transfer" && sc.on_call ? { key: "transfer", label: sc.unknown_caller ? "+7 7•• •••" : P.tabs.call } : null;
+          const showTabs = (tab === "transfer" ? flow === "form" && tStep === "menu" : tab === "call" ? !callState || callState.screen === "pick" : true);
+          const darkScreen = tab === "call" && callState && callState.screen !== "pick" && callState.screen !== "summary";
+          const recName = rec ? rec.name[lang] : "";
+          const note = check && notes.find((n) => n.tx_id === check.tx_id);
+          const tabs = [
+            { id: "home", icon: "home", label: P.tabs.home }, { id: "transfer", icon: "send", label: P.tabs.transfer },
+            { id: "call", icon: "phone", label: P.tabs.call }, { id: "messages", icon: "message", label: P.tabs.messages },
+            { id: "history", icon: "clock", label: P.tabs.history },
+          ];
+          const callAlert = scamCallMinutes != null && (
+            <div className="call-alert-x" role="status">
+              <b>{t.callAlert(Math.round(scamCallMinutes))}</b>
+              <span>{t.callAlertSub}</span>
+              <button className="link-btn" onClick={() => setScamCallAt(null)}>{t.callAlertOk}</button>
             </div>
-          )}
-          {mode === "transfer" && screen === "result" && (
-            <div className="screen center">
-              <div className="tick">✓</div>
-              <h4>{t.rApproved}</h4>
-              <p>{fmt(sc.amount)} ₸ → {rec.name[lang]}</p>
-              <button className="primary" onClick={home}>{t.again}</button>
-            </div>
-          )}
-          {(mode === "message" || (mode === "transfer" && screen === "home" && tStep === "menu") || (mode === "call" && (!callState || callState.screen === "pick"))) && (
-            <nav className="phone-tabs three">
-              <button className={mode === "call" ? "on" : ""} onClick={() => setMode("call")}>{t.tabCall}</button>
-              <button className={mode === "transfer" ? "on" : ""} onClick={() => setMode("transfer")}>{t.tabTransfer}</button>
-              <button className={mode === "message" ? "on" : ""} onClick={() => setMode("message")}>{t.tabMessage}</button>
-            </nav>
-          )}
-        </div>
+          );
+          let screenNode, key;
+          if (tab === "home") {
+            key = "home";
+            screenNode = <HomeScreen persona={persona} balance={balance} P={P} t={t} history={history} scamCallMinutes={scamCallMinutes}
+              onDismissCall={() => setScamCallAt(null)} go={go} />;
+          } else if (tab === "history") {
+            key = "history"; screenNode = <HistoryScreen history={history} P={P} loading={historyLoading} />;
+          } else if (tab === "guardian") {
+            key = "guardian";
+            screenNode = <GuardianScreen persona={persona} notes={notes} P={P} t={t} lang={lang} onRespond={guardian} />;
+          } else if (tab === "messages") {
+            key = "messages"; screenNode = <MessagesScreen boot={boot} lang={lang} t={t} P={P} />;
+          } else if (tab === "call") {
+            key = "call"; screenNode = <div className="app-screen call-host"><CallGuard lang={lang} onState={setCallState} /></div>;
+          } else if (flow === "analysis") {
+            key = "analysis";
+            screenNode = <AnalysisScreen check={check} P={P} lang={lang} amount={Number(sc.amount)}
+              onLow={() => { setFinal({ decision: "approved" }); setFlow("result"); }} onRisk={() => setFlow("warning")} />;
+          } else if (flow === "warning" && check) {
+            key = "warning";
+            screenNode = <WarningScreen check={check} P={P} lang={lang} busy={busy}
+              onCancel={() => decide("cancel")} onDelay={() => decide("delay")} onProceed={openDialog} />;
+          } else if (flow === "dialog") {
+            key = "dialog";
+            screenNode = <DialogScreen P={P} t={t} amount={Number(sc.amount)} chat={chat} busy={busy} final={final}
+              onAnswer={answer} onResult={() => setFlow("result")} />;
+          } else if (flow === "result" && final) {
+            key = "result";
+            screenNode = <ResultScreen final={final} P={P} t={t} recipientName={recName} amount={Number(sc.amount)} check={check} note={note}
+              onHome={goHome} onGuardian={() => setTab("guardian")} />;
+          } else {
+            key = "transfer-" + tStep;
+            screenNode = <TransferSection step={tStep} setStep={setTStep} boot={boot} lang={lang} t={t} P={P} balance={balance}
+              sc={sc} set={set} onSend={send} err={err} alert={callAlert} />;
+          }
+          const tone = darkScreen || key === "warning" ? "light" : "dark";
+          return (
+            <PhoneFrame tone={tone} call={callPill}
+              tabBar={showTabs && <TabBar tabs={tabs} active={tab === "guardian" ? "home" : tab} onChange={go} />}>
+              <div className={"screen-slot" + (key === "warning" ? " warn-bg" : darkScreen ? " dark-bg" : "")} key={key}>{screenNode}</div>
+            </PhoneFrame>
+          );
+        })()}
       </section>
 
       <section className="side">

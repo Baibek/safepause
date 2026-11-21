@@ -182,7 +182,14 @@ const routes = {
   async "/api/dialog/answer"(b) {
     const tx = TX.get(b.tx_id);
     if (!tx || tx.status !== "in_dialog") throw fail(404, "no active dialog for this transfer");
-    const lang = b.lang === "ru" ? "ru" : "kk", key = tx.queue[0], q = questions[key], raw = String(b.answer).trim();
+    const lang = b.lang === "ru" ? "ru" : "kk";
+    // decisions taken on the app's fraud-warning screen instead of answering the questions (same as backend/main.py)
+    if (b.answer === "cancel" || b.answer === "delay") {
+      tx.transcript.push({ from: "client", text: { cancel: { kk: "Аударымнан бас тарттым", ru: "Отменил перевод" },
+        delay: { kk: "Кейінге қалдырдым", ru: "Отложил перевод" } }[b.answer][lang] });
+      return finish(tx, b.answer === "cancel" ? "cancelled" : "delayed", lang);
+    }
+    const key = tx.queue[0], q = questions[key], raw = String(b.answer).trim();
     let verdict = raw;
     if (raw !== "yes" && raw !== "no") {
       const out = await ask(`You classify a bank client's free-text reply (Kazakh or Russian) to a yes/no question. Reply with exactly one word: yes, no, or unclear.\n\nQuestion: ${q.ru}\nReply: ${raw.slice(0, 500)}`);

@@ -1,6 +1,7 @@
 import React from "react";
 import { fmt } from "../i18n.js";
 import { amountInWords } from "./words.js";
+import { Icon } from "../phone/PhoneFrame.jsx";
 
 // Display details per demo recipient (the bank API knows only the account).
 const CONTACT = {
@@ -11,22 +12,14 @@ const CONTACT = {
 };
 
 export const TRANSFER_TYPES = ["phone", "card", "iban"];
-
-const Icon = ({ type }) => {
-  const paths = {
-    phone: <><rect x="7" y="2.5" width="10" height="19" rx="2.5" /><path d="M10.5 18.5h3" /></>,
-    card: <><rect x="2.5" y="5.5" width="19" height="13" rx="2.5" /><path d="M2.5 10h19M6 15h4" /></>,
-    iban: <><path d="M4 9.5 12 4l8 5.5" /><path d="M5.5 10v8M10 10v8M14 10v8M18.5 10v8M3.5 20h17" /></>,
-    back: <path d="M15 5 8 12l7 7" />,
-  };
-  return <svg className="ico" viewBox="0 0 24 24" aria-hidden="true">{paths[type]}</svg>;
-};
+const TYPE_ICON = { phone: "phone", card: "card", iban: "bank" };
+const shortName = (r, lang) => r.name[lang].replace(/\s*\(.*\)/, "").replace(/^.*—\s*/, "");
 
 /**
- * The "Transfers" section of the banking app: choose a transfer type, then fill one form.
- * Sending goes through SafePause (onSend) exactly like the old single form.
+ * The transfer section of the app: choose whom and how, then one form.
+ * "Continue" hands the form to SafePause's check (onSend), exactly as before.
  */
-export default function TransferSection({ step, setStep, boot, lang, t, persona, balance, sc, set, onSend, err, alert }) {
+export default function TransferSection({ step, setStep, boot, lang, t, P, balance, sc, set, onSend, err, alert }) {
   const known = boot.recipients.filter((r) => r.id !== "utility");
   const rec = boot.recipients.find((r) => r.id === sc.recipient) || boot.recipients[0];
   const type = sc.ttype || "phone";
@@ -35,82 +28,75 @@ export default function TransferSection({ step, setStep, boot, lang, t, persona,
   const words = amount ? amountInWords(amount, lang) : "";
 
   if (step !== "form") return (
-    <div className="screen tr">
-      <div className="tr-head"><span className="hello">{persona.name}</span><h4 className="first">{t.trTitle}</h4></div>
+    <div className="app-screen tr-x">
+      <h1 className="large-title">{t.trTitle}</h1>
       {alert}
-      <div className="card-balance">
-        <span>{t.trFrom} · {t.trCardMask}</span>
-        <b>{fmt(balance)} ₸</b>
+      <h3 className="sec-title">{t.trRecent}</h3>
+      <div className="contacts">
+        {known.map((r) => (
+          <button key={r.id} onClick={() => { set({ ttype: "phone", recipient: r.id }); setStep("form"); }}>
+            <i className={r.known ? "" : "new"}>{CONTACT[r.id]?.initials}</i>
+            <small>{shortName(r, lang)}</small>
+          </button>
+        ))}
       </div>
-      <ul className="tr-types">
+      <ul className="group">
         {TRANSFER_TYPES.map((ty) => (
           <li key={ty}>
             <button onClick={() => { set({ ttype: ty, recipient: ty === "iban" ? "utility" : sc.recipient === "utility" ? "family" : sc.recipient }); setStep("form"); }}>
-              <Icon type={ty} />
-              <span><b>{t.trType[ty]}</b><small>{t.trTypeSub[ty]}</small></span>
+              <span className="g-ic"><Icon name={TYPE_ICON[ty]} size={20} /></span>
+              <span className="g-txt"><b>{t.trType[ty]}</b><small>{t.trTypeSub[ty]}</small></span>
+              <Icon name="chevron" size={18} />
             </button>
           </li>
         ))}
       </ul>
-      <span className="lbl">{t.trRecent}</span>
-      <div className="tr-recents">
-        {known.map((r) => (
-          <button key={r.id} onClick={() => { set({ ttype: "phone", recipient: r.id }); setStep("form"); }}>
-            <i className={r.known ? "" : "new"}>{CONTACT[r.id]?.initials}</i>
-            <small>{r.name[lang].split(/[—(]/)[r.known ? 0 : 1]?.trim() || r.name[lang]}</small>
-          </button>
-        ))}
-      </div>
     </div>
   );
 
   return (
-    <div className="screen tr">
-      <div className="tr-bar">
-        <button className="tr-back" onClick={() => setStep("menu")} aria-label={t.trBack}><Icon type="back" /></button>
+    <div className="app-screen tr-x form">
+      <header className="nav-bar">
+        <button className="nav-back" onClick={() => setStep("menu")} aria-label={t.trBack}><Icon name="back" size={22} stroke={2.2} /></button>
         <b>{t.trType[type]}</b>
-      </div>
+        <span />
+      </header>
       {alert}
-      <div className="tr-row">
-        <span className="lbl">{t.trFrom}</span>
-        <div className="tr-source"><Icon type="card" /><span>{t.trCardMask}</span><b>{fmt(balance)} ₸</b></div>
-      </div>
+      <div className="from-row"><Icon name="card" size={20} /><span>{P.card}</span><b>{fmt(balance)} ₸</b></div>
 
-      <div className="tr-row">
-        <span className="lbl">{t.trTo}</span>
-        {type !== "iban" && (
-          <div className="tr-chips">
-            {known.map((r) => (
-              <button key={r.id} className={r.id === rec.id ? "on" : ""} onClick={() => set({ recipient: r.id })}>
-                <i className={r.known ? "" : "new"}>{CONTACT[r.id]?.initials}</i>{r.name[lang].replace(/\s*\(.*\)/, "").replace(/^.*—\s*/, "")}
-              </button>
-            ))}
-          </div>
-        )}
-        <div className="tr-field">{field}</div>
-        <p className={"tr-lookup " + (rec.known ? "ok" : "new")}>
-          {rec.known ? `✓ ${rec.name[lang]}` : t.trNewRecipient}
-        </p>
-      </div>
-
-      <div className="tr-row">
-        <label className="lbl" htmlFor="amt">{t.trAmount}</label>
-        <div className="tr-amount">
-          <input id="amt" inputMode="numeric" autoComplete="off" value={amount ? fmt(amount) : ""} placeholder="0"
-            onChange={(e) => set({ amount: e.target.value.replace(/\D/g, "").slice(0, 9) })} />
-          <span>₸</span>
+      <span className="field-label">{t.trTo}</span>
+      {type !== "iban" && (
+        <div className="chips-x">
+          {known.map((r) => (
+            <button key={r.id} className={r.id === rec.id ? "on" : ""} onClick={() => set({ recipient: r.id })}>
+              <i className={r.known ? "" : "new"}>{CONTACT[r.id]?.initials}</i>{shortName(r, lang)}
+            </button>
+          ))}
         </div>
-        <p className="tr-words" aria-live="polite">{words || t.trWordsHint}</p>
-        <div className="tr-quick">
-          {[5000, 10000, 50000].map((v) => <button key={v} onClick={() => set({ amount: String(amount + v) })}>+{fmt(v)}</button>)}
-        </div>
+      )}
+      <div className="recipient-card">
+        <span className={"avatar sm" + (rec.known ? "" : " new")}>{CONTACT[rec.id]?.initials}</span>
+        <div><b>{field}</b><small className={rec.known ? "ok" : "new"}>{rec.known ? `✓ ${rec.name[lang]}` : t.trNewRecipient}</small></div>
       </div>
 
-      <div className="tr-fee"><span>{t.trFee}</span><b>0 ₸</b></div>
-      <label className="lbl" htmlFor="tr-msg">{t.trMessage}</label>
-      <input id="tr-msg" className="tr-msg" value={sc.note || ""} maxLength={60} onChange={(e) => set({ note: e.target.value })} placeholder={t.trMessageHint} />
+      <label className="field-label" htmlFor="amt">{t.trAmount}</label>
+      <div className="amount-x">
+        <input id="amt" inputMode="numeric" autoComplete="off" value={amount ? fmt(amount) : ""} placeholder="0"
+          onChange={(e) => set({ amount: e.target.value.replace(/\D/g, "").slice(0, 9) })} />
+        <span>₸</span>
+      </div>
+      <p className="amount-words" aria-live="polite">{words || t.trWordsHint}</p>
+      <div className="chips-x">
+        {[5000, 10000, 50000].map((v) => <button key={v} onClick={() => set({ amount: String(amount + v) })}>+{fmt(v)}</button>)}
+      </div>
+
+      <label className="field-label" htmlFor="tr-msg">{t.trMessage}</label>
+      <input id="tr-msg" className="field-x" value={sc.note || ""} maxLength={60} onChange={(e) => set({ note: e.target.value })} placeholder={t.trMessageHint} />
+      <div className="fee-row"><span>{t.trFee}</span><b>0 ₸</b></div>
       {err && <p className="error">{err}</p>}
-      <button className="primary" disabled={!amount} onClick={onSend}>{amount ? t.trSend(fmt(amount)) : t.send}</button>
+      <div className="cta-stack sticky">
+        <button className="btn primary-blue" id="tr-continue" disabled={!amount} onClick={onSend}>{amount ? t.trContinue(fmt(amount)) : t.send}</button>
+      </div>
     </div>
   );
 }
