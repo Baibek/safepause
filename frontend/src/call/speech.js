@@ -37,17 +37,85 @@ async function openMeter(onLevel) {
   return () => { cancelAnimationFrame(raf); ctx?.close().catch(() => {}); stream.getTracks().forEach((tr) => tr.stop()); };
 }
 
+// ── On-device recognition: Vosk (alphacep/vosk-api, Apache-2.0) compiled to WebAssembly (vosk-browser) ─────────
+// The same models the Android app uses: vosk-model-small-kz-0.15 and vosk-model-small-ru-0.22, served next to the
+// page as models/vosk-<lang>.tar.gz. Audio never leaves the browser and no Google service is needed.
+const voskModels = {};
+async function fetchWithProgress(url, onProgress) {
+  const res = await fetch(url);
+  if (!res.ok || !res.body) throw new Error("model " + res.status);
+  const total = Number(res.headers.get("content-length")) || 0;
+  const reader = res.body.getReader(); const parts = []; let got = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    parts.push(value); got += value.length;
+    if (total) onProgress?.(got / total);
+  }
+  return new Blob(parts, { type: "application/gzip" });
+}
+function voskModel(lang, onProgress) {
+  voskModels[lang] ??= (async () => {
+    const [{ createModel }, blob] = await Promise.all([import("vosk-browser"), fetchWithProgress(`models/vosk-${lang}.tar.gz`, onProgress)]);
+    return createModel(URL.createObjectURL(blob), -1);
+  })().catch((e) => { delete voskModels[lang]; throw e; });
+  return voskModels[lang];
+}
+
+async function startVosk(lang, { onPartial, onFinal, onError, onLevel, onStatus, onProgress }) {
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } }); }
+  catch (e) { onError(micError(e)); return null; }
+  onStatus?.("loading");
+  let model;
+  try { model = await voskModel(lang, onProgress); }
+  catch { stream.getTracks().forEach((tr) => tr.stop()); return "fallback"; }
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const rec = new model.KaldiRecognizer(ctx.sampleRate);
+  rec.on("partialresult", (m) => { const p = m.result?.partial || ""; if (p) onStatus?.("text"); onPartial(p); });
+  rec.on("result", (m) => { const tx = (m.result?.text || "").trim(); if (tx) { onStatus?.("text"); onFinal(tx); } });
+  const src = ctx.createMediaStreamSource(stream);
+  const node = ctx.createScriptProcessor(4096, 1, 1);
+  const an = ctx.createAnalyser(); an.fftSize = 512;
+  const buf = new Uint8Array(an.fftSize);
+  node.onaudioprocess = (e) => {
+    try { rec.acceptWaveform(e.inputBuffer); } catch { /* a dropped buffer */ }
+    an.getByteTimeDomainData(buf);
+    let sum = 0; for (const v of buf) sum += ((v - 128) / 128) ** 2;
+    const level = Math.min(1, Math.sqrt(sum / buf.length) * 4);
+    onLevel?.(level);
+    if (level > 0.05) onStatus?.("sound");
+  };
+  src.connect(an); src.connect(node); node.connect(ctx.destination);
+  if (ctx.state === "suspended") await ctx.resume().catch(() => {});
+  onStatus?.("started");
+  return {
+    kind: "vosk",
+    stop: () => {
+      try { rec.retrieveFinalResult(); } catch { /* recognizer already gone */ }
+      setTimeout(() => { try { rec.remove(); } catch { /* removed */ } }, 400);
+      node.disconnect(); src.disconnect(); ctx.close().catch(() => {});
+      stream.getTracks().forEach((tr) => tr.stop());
+    },
+  };
+}
+
 /**
  * Live listening. On a normal page: the microphone (permission + level meter) and Chrome's Web Speech API,
  * falling back from Kazakh to Russian recognition if the browser has no Kazakh. Inside a claude.ai artifact:
  * the artifact's `dictation` capability. onError gets one of denied | nomic | network | unsupported | lang | generic.
  */
-export async function startListening(lang, { onPartial, onFinal, onError, onLevel, onNotice, onStatus }) {
+export async function startListening(lang, { onPartial, onFinal, onError, onLevel, onNotice, onStatus, onProgress }) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const inArtifact = window.self !== window.top;
   if (!inArtifact) {
-    if (!SR) { onError("unsupported"); return null; }
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) { onError("denied"); return null; }
+    if (typeof WebAssembly === "object" && window.Worker) {
+      const v = await startVosk(lang, { onPartial, onFinal, onError, onLevel, onStatus, onProgress });
+      if (v !== "fallback") return v;           // started, or a microphone error already reported
+      onNotice?.("model");
+    }
+    if (!SR) { onError("unsupported"); return null; }
     let closeMeter = () => {};
     try { closeMeter = await openMeter(onLevel); } catch (e) { onError(micError(e)); return null; }
     let active = true, locale = LOCALE[lang];
@@ -160,6 +228,40 @@ export async function piperAudio(text, lang, who) {
   if (!tts || piperBroken) return null;
   try { return await tts.predict({ text, voiceId: PIPER_VOICES[lang][who] }); }
   catch { piperBroken = true; return null; }
+}
+
+// ── Pre-rendered demo calls: one mp3 per call (tools/render_calls.py) with each turn's start and end ──────────
+let manifestPromise = null;
+function callManifest() {
+  manifestPromise ??= fetch("calls/manifest.json").then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  return manifestPromise;
+}
+/** The recorded call, or null when this page has no recordings (then speak() synthesises each line). */
+export async function loadCall(id) {
+  const m = await callManifest();
+  const base = id.replace(/-video$/, "");
+  if (!m?.[base]) return null;
+  const audio = new Audio(`calls/${base}.mp3`);
+  audio.preload = "auto";
+  const ready = await new Promise((resolve) => {
+    if (audio.readyState >= 1) return resolve(true);
+    audio.addEventListener("loadedmetadata", () => resolve(true), { once: true });
+    audio.addEventListener("error", () => resolve(false), { once: true });
+    setTimeout(() => resolve(audio.readyState >= 1), 8000);
+  });
+  return ready ? { audio, turns: m[base].turns, cast: m[base].cast } : null;
+}
+/** Plays one turn of a recorded call; resolves when it ends or the call is stopped. */
+export function playTurn(call, i) {
+  const a = call.audio, [start, end] = call.turns[i];
+  current = a;
+  return new Promise((resolve) => {
+    let started = false, iv = 0;
+    const done = () => { clearInterval(iv); a.pause(); if (current === a) current = null; resolve(); };
+    a.currentTime = start;
+    a.play().then(() => { started = true; }).catch(done);
+    iv = setInterval(() => { if (a.currentTime >= end - 0.03 || a.ended || (started && a.paused)) done(); }, 25);
+  });
 }
 
 let current = null;

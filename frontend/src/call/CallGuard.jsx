@@ -5,7 +5,7 @@ import scamCalls from "../../../shared/demo_calls_scam.json";
 import legitCalls from "../../../shared/demo_calls_legit.json";
 import replies from "../../../shared/demo_replies.json";
 import { ScamDetector, loadRules } from "./detector.js";
-import { startListening, speak, stopSpeaking, preparePiper, piperAudio } from "./speech.js";
+import { startListening, speak, stopSpeaking, preparePiper, piperAudio, loadCall, playTurn } from "./speech.js";
 import { askClaude, merge } from "./analyst.js";
 
 const RULES = loadRules(rulesJson);
@@ -56,13 +56,17 @@ const T = {
       unsupported: ["Бұл браузер сөйлеуді танымайды", "Сайтты компьютерде Google Chrome немесе Microsoft Edge арқылы ашыңыз. Safari мен Firefox бұл мүмкіндікті бермейді."],
       lang: ["Қазақ тілі бұл браузерде танылмайды", "Орыс тілінде тыңдап тұрмыз."],
       generic: ["Тыңдау басталмады", "Бетті жаңартып, қайта көріңіз. Немесе демо қоңырауды таңдаңыз."],
+      model: ["Тану моделі жүктелмеді", "Орнына браузердің өз тануын қолданып тұрмыз."],
     },
+    modelLoading: (p) => `Сөйлеу моделі жүктелуде (бір рет): ${p}%`,
+    callLoading: "Қоңырау жазбасы жүктелуде…",
     verdict: { HIGH: "Алаяқтық белгілері табылды", SUSPICIOUS: "Күдікті белгілер бар", LOW: "Қауіп белгісі табылмады" },
     androidNote: "Нақты қоңырауды автоматты түрде тыңдау тек Android қосымшасында жұмыс істейді. Браузер телефон қоңырауына қол жеткізе алмайды.",
+    credits: "Сөйлеу браузердің ішінде Vosk арқылы танылады, интернетке жіберілмейді. Демо дауыстар: Piper, қазақ дауыстары ISSAI KazakhTTS (CC-BY-4.0).",
     checks: { mic: "Микрофон дыбыс береді", svc: "Сөйлеуді тану қосылды", txt: "Сөз мәтінге айналды" },
     diag: {
       silent: ["Микрофон дыбыс бермей тұр", "Mac-та: Жүйелік баптаулар → Құпиялылық және қауіпсіздік → Микрофон → Google Chrome-ды қосып, Chrome-ды қайта ашыңыз. Windows-та: Баптаулар → Құпиялылық → Микрофон. Бірнеше микрофон болса, адрес жолындағы белгішеден дұрысын таңдаңыз."],
-      nosvc: ["Сөйлеуді тану қызметі қосылмады", "Яндекс, Brave, Opera сияқты браузерлерде бұл қызмет жоқ болуы мүмкін. Сайтты Google Chrome-да ашыңыз."],
+      nosvc: ["Сөйлеуді тану қосылмады", "Интернетті тексеріп, бетті жаңартыңыз. Сайтты Google Chrome-да ашып көріңіз."],
       notext: ["Дауыс естіліп тұр, бірақ мәтін келмей тұр", "Жақынырақ әрі анығырақ сөйлеңіз. Қазақша танылмаса, тілді «Русский» деп ауыстырып көріңіз. VPN қосулы болса, өшіріп көріңіз."],
     },
   },
@@ -98,13 +102,17 @@ const T = {
       unsupported: ["Этот браузер не распознаёт речь", "Откройте сайт на компьютере в Google Chrome или Microsoft Edge. Safari и Firefox этого не умеют."],
       lang: ["Казахский язык в этом браузере не распознаётся", "Слушаем на русском."],
       generic: ["Не удалось начать", "Обновите страницу и попробуйте снова. Или выберите демо-звонок."],
+      model: ["Модель распознавания не загрузилась", "Вместо неё используем распознавание браузера."],
     },
+    modelLoading: (p) => `Загружается модель речи (один раз): ${p}%`,
+    callLoading: "Загружается запись звонка…",
     verdict: { HIGH: "Найдены признаки мошенничества", SUSPICIOUS: "Есть подозрительные признаки", LOW: "Признаков опасности нет" },
     androidNote: "Автоматически слушать настоящий звонок умеет только приложение для Android. Браузер не имеет доступа к телефонным звонкам.",
+    credits: "Речь распознаётся прямо в браузере через Vosk и никуда не отправляется. Голоса демо: Piper, казахские голоса ISSAI KazakhTTS (CC-BY-4.0).",
     checks: { mic: "Микрофон даёт звук", svc: "Распознавание запущено", txt: "Речь превращается в текст" },
     diag: {
       silent: ["Микрофон не даёт звука", "На Mac: Системные настройки → Конфиденциальность и безопасность → Микрофон → включите Google Chrome и перезапустите его. В Windows: Параметры → Конфиденциальность → Микрофон. Если микрофонов несколько, выберите нужный через значок в адресной строке."],
-      nosvc: ["Сервис распознавания не запустился", "В браузерах вроде Яндекс, Brave, Opera этого сервиса может не быть. Откройте сайт в Google Chrome."],
+      nosvc: ["Распознавание не запустилось", "Проверьте интернет и обновите страницу. Попробуйте открыть сайт в Google Chrome."],
       notext: ["Голос слышен, но текст не приходит", "Говорите ближе и чётче. Если казахский не распознаётся, переключите язык на «Русский». Если включён VPN, попробуйте его отключить."],
     },
   },
@@ -158,7 +166,7 @@ export default function CallGuard({ lang, onState }) {
     if (!listening || !diag) return;
     const id = setInterval(() => {
       const el = (Date.now() - diag.at) / 1000;
-      setDiagHint(diag.text ? "" : el > 5 && diag.peak < 0.05 ? "silent" : el > 5 && !diag.started ? "nosvc" : el > 9 && (diag.sound || diag.peak >= 0.05) ? "notext" : "");
+      setDiagHint(diag.text || diag.loading ? "" : el > 5 && diag.peak < 0.05 ? "silent" : el > 5 && !diag.started ? "nosvc" : el > 9 && (diag.sound || diag.peak >= 0.05) ? "notext" : "");
     }, 1000);
     return () => clearInterval(id);
   }, [listening, diag]);
@@ -191,6 +199,21 @@ export default function CallGuard({ lang, onState }) {
     setListening(true);
     if (sc.turns) {                                            // scripted dialog read aloud, two voices
       const my = ++run.current;
+      setPartial(t.callLoading);
+      const rec = await loadCall(sc.id);                       // recorded with Piper voices, one file per call
+      if (run.current !== my) return;
+      if (rec && rec.turns.length === sc.turns.length) {
+        setPartial("");
+        for (const [i, turn] of sc.turns.entries()) {
+          if (run.current !== my) return;
+          setPartial(turn);
+          await playTurn(rec, i);
+          if (run.current !== my) return;
+          setPartial("");
+          feed(turn.text, sc.lang, turn.who);
+        }
+        return;
+      }
       setPartial(t.voiceLoading + "…");
       const neural = await preparePiper(sc.lang, (p) => run.current === my && setPartial(`${t.voiceLoading} ${Math.round(p * 100)}%`));
       setPartial("");
@@ -210,14 +233,25 @@ export default function CallGuard({ lang, onState }) {
       }
     } else {                                                   // live microphone
       setError(""); setNotice(""); setDiagHint("");
-      setDiag({ at: Date.now(), peak: 0, started: false, sound: false, text: false });
+      setDiag({ at: Date.now(), peak: 0, started: false, loading: false, sound: false, text: false });
       const handle = await startListening(liveLang, {
         onPartial: setPartial,
         onFinal: (text) => { setPartial(""); feed(text, liveLang, "caller"); },
         onError: (code) => { setError(code); setListening(false); setMicLevel(0); mic.current = null; },
-        onLevel: (v) => { setMicLevel(v); if (v > 0.04) setDiag((d) => (d && d.peak < v ? { ...d, peak: v } : d)); },
+        onLevel: (v) => { setMicLevel(v); if (v >= 0.05) setDiag((d) => (d && d.peak < 0.05 ? { ...d, peak: v } : d)); },
         onNotice: setNotice,
-        onStatus: (st) => setDiag((d) => d && ({ ...d, started: true, sound: d.sound || ["sound", "speech", "text"].includes(st), text: d.text || st === "text" })),
+        onProgress: (p) => setPartial(t.modelLoading(Math.round(p * 100))),
+        onStatus: (st) => setDiag((d) => {
+          if (!d) return d;
+          const n = {
+            ...d, loading: st === "loading" ? true : st === "started" ? false : d.loading,
+            started: d.started || ["started", "speech", "text"].includes(st) || (st === "sound" && !d.loading),
+            sound: d.sound || ["sound", "speech", "text"].includes(st), text: d.text || st === "text",
+            at: st === "started" && !d.started ? Date.now() : d.at,
+          };
+          if (st === "started") setPartial("");
+          return n.loading === d.loading && n.started === d.started && n.sound === d.sound && n.text === d.text ? d : n;
+        }),
       });
       if (!handle) { setListening(false); return; }
       mic.current = handle;
@@ -273,6 +307,7 @@ export default function CallGuard({ lang, onState }) {
           ))}
         </ul>
         <p className="cg-note">{t.androidNote}</p>
+        <p className="cg-note">{t.credits}</p>
       </div>
     );
   }
