@@ -59,6 +59,12 @@ const T = {
     },
     verdict: { HIGH: "Алаяқтық белгілері табылды", SUSPICIOUS: "Күдікті белгілер бар", LOW: "Қауіп белгісі табылмады" },
     androidNote: "Нақты қоңырауды автоматты түрде тыңдау тек Android қосымшасында жұмыс істейді. Браузер телефон қоңырауына қол жеткізе алмайды.",
+    checks: { mic: "Микрофон дыбыс береді", svc: "Сөйлеуді тану қосылды", txt: "Сөз мәтінге айналды" },
+    diag: {
+      silent: ["Микрофон дыбыс бермей тұр", "Mac-та: Жүйелік баптаулар → Құпиялылық және қауіпсіздік → Микрофон → Google Chrome-ды қосып, Chrome-ды қайта ашыңыз. Windows-та: Баптаулар → Құпиялылық → Микрофон. Бірнеше микрофон болса, адрес жолындағы белгішеден дұрысын таңдаңыз."],
+      nosvc: ["Сөйлеуді тану қызметі қосылмады", "Яндекс, Brave, Opera сияқты браузерлерде бұл қызмет жоқ болуы мүмкін. Сайтты Google Chrome-да ашыңыз."],
+      notext: ["Дауыс естіліп тұр, бірақ мәтін келмей тұр", "Жақынырақ әрі анығырақ сөйлеңіз. Қазақша танылмаса, тілді «Русский» деп ауыстырып көріңіз. VPN қосулы болса, өшіріп көріңіз."],
+    },
   },
   ru: {
     pick: "Сценарий звонка", pickHint: "Выберите звонок мошенника — телефон прочитает его вслух. Или проверьте вживую через микрофон.",
@@ -95,6 +101,12 @@ const T = {
     },
     verdict: { HIGH: "Найдены признаки мошенничества", SUSPICIOUS: "Есть подозрительные признаки", LOW: "Признаков опасности нет" },
     androidNote: "Автоматически слушать настоящий звонок умеет только приложение для Android. Браузер не имеет доступа к телефонным звонкам.",
+    checks: { mic: "Микрофон даёт звук", svc: "Распознавание запущено", txt: "Речь превращается в текст" },
+    diag: {
+      silent: ["Микрофон не даёт звука", "На Mac: Системные настройки → Конфиденциальность и безопасность → Микрофон → включите Google Chrome и перезапустите его. В Windows: Параметры → Конфиденциальность → Микрофон. Если микрофонов несколько, выберите нужный через значок в адресной строке."],
+      nosvc: ["Сервис распознавания не запустился", "В браузерах вроде Яндекс, Brave, Opera этого сервиса может не быть. Откройте сайт в Google Chrome."],
+      notext: ["Голос слышен, но текст не приходит", "Говорите ближе и чётче. Если казахский не распознаётся, переключите язык на «Русский». Если включён VPN, попробуйте его отключить."],
+    },
   },
 };
 
@@ -120,6 +132,8 @@ export default function CallGuard({ lang, onState }) {
   const [error, setError] = useState("");            // a key of t.micErr
   const [notice, setNotice] = useState("");
   const [micLevel, setMicLevel] = useState(0);
+  const [diag, setDiag] = useState(null);             // live mode checks: { at, peak, started, sound, text }
+  const [diagHint, setDiagHint] = useState("");
   const [secs, setSecs] = useState(0);
   const [manual, setManual] = useState(null);         // {i, answers} while the face check runs
   const [videoResult, setVideoResult] = useState(null);
@@ -139,6 +153,15 @@ export default function CallGuard({ lang, onState }) {
     }
   }, [level, assessment]);
   useEffect(() => () => stopAll(), []);
+  // live mode: after a few seconds, say which step is failing (silent mic, no recogniser, sound but no text)
+  useEffect(() => {
+    if (!listening || !diag) return;
+    const id = setInterval(() => {
+      const el = (Date.now() - diag.at) / 1000;
+      setDiagHint(diag.text ? "" : el > 5 && diag.peak < 0.05 ? "silent" : el > 5 && !diag.started ? "nosvc" : el > 9 && (diag.sound || diag.peak >= 0.05) ? "notext" : "");
+    }, 1000);
+    return () => clearInterval(id);
+  }, [listening, diag]);
 
   const feed = (text, source, who = "caller") => {
     if (!text) return;
@@ -186,20 +209,22 @@ export default function CallGuard({ lang, onState }) {
         await new Promise((r) => setTimeout(r, 500));
       }
     } else {                                                   // live microphone
-      setError(""); setNotice("");
+      setError(""); setNotice(""); setDiagHint("");
+      setDiag({ at: Date.now(), peak: 0, started: false, sound: false, text: false });
       const handle = await startListening(liveLang, {
         onPartial: setPartial,
         onFinal: (text) => { setPartial(""); feed(text, liveLang, "caller"); },
         onError: (code) => { setError(code); setListening(false); setMicLevel(0); mic.current = null; },
-        onLevel: setMicLevel,
+        onLevel: (v) => { setMicLevel(v); if (v > 0.04) setDiag((d) => (d && d.peak < v ? { ...d, peak: v } : d)); },
         onNotice: setNotice,
+        onStatus: (st) => setDiag((d) => d && ({ ...d, started: true, sound: d.sound || ["sound", "speech", "text"].includes(st), text: d.text || st === "text" })),
       });
       if (!handle) { setListening(false); return; }
       mic.current = handle;
     }
   };
 
-  const hangUp = () => { stopAll(); setListening(false); setMicLevel(0); setScreen("summary"); };
+  const hangUp = () => { stopAll(); setListening(false); setMicLevel(0); setDiag(null); setDiagHint(""); setScreen("summary"); };
   const reset = () => { stopAll(); setScreen("pick"); setSc(null); setListening(false); setError(""); setMicLevel(0); };
   const flagged = new Set(assessment?.hits.map((h) => h.phrase.text) || []);
   const reasons = assessment?.hits.map((h) => h.rule[lang]) || [];
@@ -321,6 +346,14 @@ export default function CallGuard({ lang, onState }) {
               <small>{t.micLevel}</small>
             </div>
           )}
+          {!sc.turns && diag && (
+            <ul className="cg-checks">
+              {[["mic", diag.peak >= 0.05], ["svc", diag.started], ["txt", diag.text]].map(([k, ok]) => (
+                <li key={k} className={ok ? "ok" : ""}><i aria-hidden="true">{ok ? "✓" : "…"}</i>{t.checks[k]}</li>
+              ))}
+            </ul>
+          )}
+          {diagHint && <div className="cg-diag" role="status"><b>{t.diag[diagHint][0]}</b><small>{t.diag[diagHint][1]}</small></div>}
           {notice && <p className="cg-notice">{t.micErr[notice][0]}. {t.micErr[notice][1]}</p>}
           <Transcript list={lines.slice(-4)} />
           {partial && typeof partial === "object"

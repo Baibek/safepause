@@ -441,3 +441,8 @@
 .net-sum li span { grid-column: 1; color: var(--ink2); font-size: 13px; } .net-sum .num { grid-row: 1; grid-column: 2; font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: reduce) { .analyst-app, .an-sheet { animation: none; } }
 .screen-slot.dark-bg:has(.cg-dark) { background: transparent; }
+.cg-checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 12.5px; color: #8F9CC2; }
+.cg-checks li { display: flex; gap: 8px; align-items: center; } .cg-checks i { font-style: normal; width: 16px; text-align: center; }
+.cg-checks li.ok { color: #7EEDB3; }
+.cg-diag { background: #FFF4E5; color: #6B3A04; border-radius: 14px; padding: 10px 12px; display: grid; gap: 4px; }
+.cg-diag b { font-size: 14px; } .cg-diag small { font-size: 12.5px; line-height: 1.45; }

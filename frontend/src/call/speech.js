@@ -42,7 +42,7 @@ async function openMeter(onLevel) {
  * falling back from Kazakh to Russian recognition if the browser has no Kazakh. Inside a claude.ai artifact:
  * the artifact's `dictation` capability. onError gets one of denied | nomic | network | unsupported | lang | generic.
  */
-export async function startListening(lang, { onPartial, onFinal, onError, onLevel, onNotice }) {
+export async function startListening(lang, { onPartial, onFinal, onError, onLevel, onNotice, onStatus }) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const inArtifact = window.self !== window.top;
   if (!inArtifact) {
@@ -55,16 +55,21 @@ export async function startListening(lang, { onPartial, onFinal, onError, onLeve
     const begin = () => {
       r = new SR();
       r.lang = locale; r.continuous = true; r.interimResults = true;
+      r.onstart = () => onStatus?.("started");
+      r.onsoundstart = () => onStatus?.("sound");
+      r.onspeechstart = () => onStatus?.("speech");
       r.onresult = (e) => {
         let partial = "";
         for (let i = e.resultIndex; i < e.results.length; i++) {
           const res = e.results[i];
           if (res.isFinal) onFinal(res[0].transcript.trim()); else partial += res[0].transcript;
         }
+        onStatus?.("text");
         onPartial(partial);
       };
       r.onerror = (e) => {
-        if (e.error === "no-speech" || e.error === "aborted") return;
+        if (e.error === "no-speech") { onStatus?.("nospeech"); return; }
+        if (e.error === "aborted") return;
         if (e.error === "language-not-supported" && locale !== LOCALE.ru) { locale = LOCALE.ru; onNotice?.("lang"); return; }
         active = false; closeMeter(); onError(micError(e.error));
       };
@@ -78,12 +83,13 @@ export async function startListening(lang, { onPartial, onFinal, onError, onLeve
   if (!dictation) { onError("unsupported"); return null; }
   const offs = [
     dictation.onPartial(({ text }) => onPartial(text)),
-    dictation.onFinal(({ text }) => onFinal(text.trim())),
+    dictation.onFinal(({ text }) => { onStatus?.("text"); onFinal(text.trim()); }),
   ];
   try { await dictation.start({ language: lang }); }
   catch (e) {
     try { await dictation.start(); } catch (e2) { offs.forEach((f) => f()); onError(micError(e2?.code || "not-allowed")); return null; }
   }
+  onStatus?.("started");
   return { kind: "dictation", stop: () => { offs.forEach((f) => f()); dictation.stop().catch(() => {}); } };
 }
 
