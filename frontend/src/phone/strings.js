@@ -25,7 +25,7 @@ export const PH = {
     cancel: "Аударымнан бас тарту",
     wait: (m) => `${m} минутқа кейінге қалдыру`,
     proceed: "Бәрібір жалғастыру",
-    proceedHint: "Жалғастыру үшін SafePause көмекшісінің 2–3 сұрағына жауап беріңіз.",
+    proceedHint: "Жалғастыру үшін Senim көмекшісінің 2–3 сұрағына жауап беріңіз.",
     toResult: "Нәтижені көру",
     resultTitle: { approved: "Аударым жіберілді", delayed: "Аударым кейінге қалдырылды", cancelled: "Аударым тоқтатылды" },
     resultSub: {
@@ -77,7 +77,7 @@ export const PH = {
     cancel: "Отменить перевод",
     wait: (m) => `Отложить на ${m} минут`,
     proceed: "Всё равно продолжить",
-    proceedHint: "Чтобы продолжить, ответьте на 2–3 вопроса помощника SafePause.",
+    proceedHint: "Чтобы продолжить, ответьте на 2–3 вопроса помощника Senim.",
     toResult: "Посмотреть итог",
     resultTitle: { approved: "Перевод отправлен", delayed: "Перевод отложен", cancelled: "Перевод остановлен" },
     resultSub: {

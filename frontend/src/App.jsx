@@ -21,7 +21,7 @@ export default function App() {
         <div className="brand">
           <span className="logo" aria-hidden="true"><i /><i /></span>
           <div>
-            <strong>SafePause</strong>
+            <strong>Senim</strong>
             <small>{t.tagline}</small>
           </div>
         </div>

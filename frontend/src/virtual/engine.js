@@ -1,4 +1,4 @@
-// Serverless port of backend/main.py: the whole SafePause API runs in the browser.
+// Serverless port of backend/main.py: the whole Senim API runs in the browser.
 // The LLM is reached through the Claude artifact runtime (`sample`); without it, templates are used.
 import data from "./data.json";
 import rulesDoc from "../../../shared/message_rules.json";
@@ -7,7 +7,7 @@ import { explain } from "./shap.js";
 const { personas, recipients, factor, questions, texts: T, thresholds, graph } = data;
 const DROP = Object.fromEntries(graph.nodes.filter((n) => n.role === "drop" || n.role === "cashout").map((n) => [n.id, n]));
 const LANG = { kk: "Kazakh (Cyrillic)", ru: "Russian" };
-const SYSTEM = (lang, n) => `You are SafePause, the in-app safety assistant of a Kazakhstan bank. A money transfer was paused because a risk model flagged signs of social-engineering fraud (a caller posing as the bank's security service or police who convinces the client to move money to a "safe account").
+const SYSTEM = (lang, n) => `You are Senim, the in-app safety assistant of a Kazakhstan bank. A money transfer was paused because a risk model flagged signs of social-engineering fraud (a caller posing as the bank's security service or police who convinces the client to move money to a "safe account").
 
 Write to the client in ${LANG[lang]}. The reader may be elderly and under pressure from a caller, so: warm, calm, short sentences, everyday words, no banking jargon, no blame. Never say the transfer is "blocked" - it is paused for the client's own protection. Plain text only, no markdown, no emoji, at most ${n} sentences. Output only the message itself.\n\n`;
 
@@ -149,7 +149,7 @@ const routes = {
       factors.unshift({ key: "scam_call", contribution: 5, value: m,
         kk: `${m < 1 ? "Жаңа ғана" : `${m} минут бұрын`} телефоныңызда алаяқтық белгілері бар қоңырау анықталды`,
         ru: `${m < 1 ? "Только что" : `${m} мин назад`} на вашем телефоне распознан звонок с признаками мошенничества`,
-        en: `SafePause flagged a scam phone call on this device ${m} minutes ago` });
+        en: `Senim flagged a scam phone call on this device ${m} minutes ago` });
       risk = Math.max(risk, 0.95);
     }
     const lvl = levelOf(risk);

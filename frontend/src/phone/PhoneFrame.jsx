@@ -78,7 +78,7 @@ export default function PhoneFrame({ tone = "dark", call = null, tabBar = null, 
 
 export function TabBar({ tabs, active, onChange }) {
   return (
-    <nav className="tab-bar" aria-label="SafePause">
+    <nav className="tab-bar" aria-label="Senim">
       {tabs.map((tb) => (
         <button key={tb.id} className={active === tb.id ? "on" : ""} aria-current={active === tb.id ? "page" : undefined} onClick={() => onChange(tb.id)}>
           <Icon name={tb.icon} size={24} stroke={active === tb.id ? 2.1 : 1.7} />

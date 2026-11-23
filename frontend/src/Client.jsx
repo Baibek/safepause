@@ -279,7 +279,7 @@ export default function Client({ boot, lang, t }) {
           {notes.length === 0 && <p className="hint">{t.guardianEmpty}</p>}
           {notes.map((n) => (
             <div key={n.id} className={"note " + n.state}>
-              <small>SafePause · {n.time.slice(11, 16)}</small>
+              <small>Senim · {n.time.slice(11, 16)}</small>
               <p>{t.gText(n)}</p>
               <b>{t.gState[n.state]}</b>
               {n.state === "open" && (

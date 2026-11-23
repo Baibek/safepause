@@ -17,7 +17,7 @@ const shortName = (r, lang) => r.name[lang].replace(/\s*\(.*\)/, "").replace(/^.
 
 /**
  * The transfer section of the app: choose whom and how, then one form.
- * "Continue" hands the form to SafePause's check (onSend), exactly as before.
+ * "Continue" hands the form to Senim's check (onSend), exactly as before.
  */
 export default function TransferSection({ step, setStep, boot, lang, t, P, balance, sc, set, onSend, err, alert }) {
   const known = boot.recipients.filter((r) => r.id !== "utility");

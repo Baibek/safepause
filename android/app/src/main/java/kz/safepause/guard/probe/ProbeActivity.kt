@@ -42,7 +42,7 @@ class ProbeActivity : Activity() {
             setPadding(48, 96, 48, 48)
             setBackgroundColor(Color.WHITE)
             addView(TextView(context).apply {
-                text = "SafePause · микрофон сынағы / тест микрофона"
+                text = "Senim · микрофон сынағы / тест микрофона"
                 textSize = 20f
                 setTextColor(Color.parseColor("#14213d"))
             })

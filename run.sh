@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the web app (once) and starts SafePause on http://localhost:8000
+# Builds the web app (once) and starts Senim on http://localhost:8000
 set -e
 cd "$(dirname "$0")"
 pip install -q -r backend/requirements.txt

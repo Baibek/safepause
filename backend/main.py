@@ -1,4 +1,4 @@
-"""SafePause API: real-time transfer scoring, AI dialog, guardian mode, analyst dashboard."""
+"""Senim API: real-time transfer scoring, AI dialog, guardian mode, analyst dashboard."""
 import json
 import math
 import random
@@ -179,7 +179,7 @@ def seed():
 seed()
 
 # ---------------------------------------------------------------- API
-app = FastAPI(title="SafePause")
+app = FastAPI(title="Senim")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
@@ -189,7 +189,7 @@ class Signals(BaseModel):
     remote_app: bool = False
     hour: Optional[int] = None
     session_seconds: float = 45
-    # minutes since SafePause Call Guard on this phone flagged a call as fraud (None = no such call)
+    # minutes since Senim Call Guard on this phone flagged a call as fraud (None = no such call)
     scam_call_minutes: Optional[float] = None
 
 
@@ -282,7 +282,7 @@ def check(body: CheckIn):
         factors.insert(0, {"key": "scam_call", "contribution": 5.0, "value": m,
                            "kk": ("Жаңа ғана" if m < 1 else f"{m} минут бұрын") + " телефоныңызда алаяқтық белгілері бар қоңырау анықталды",
                            "ru": ("Только что" if m < 1 else f"{m} мин назад") + " на вашем телефоне распознан звонок с признаками мошенничества",
-                           "en": f"SafePause flagged a scam phone call on this device {m} minutes ago"})
+                           "en": f"Senim flagged a scam phone call on this device {m} minutes ago"})
         risk = max(risk, 0.95)
     lvl = level_of(risk)
     tx = {"id": tid, "time": now_iso(), "client": persona["name"], "age": persona["age"], "persona": persona["id"],

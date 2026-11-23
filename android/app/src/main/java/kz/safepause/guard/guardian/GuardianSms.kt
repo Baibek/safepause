@@ -17,10 +17,10 @@ import java.util.TimeZone
 fun guardianText(clientName: String, at: Long, number: String?, lang: String, tz: TimeZone = TimeZone.getDefault()): String {
     val time = SimpleDateFormat("HH:mm", Locale.ROOT).apply { timeZone = tz }.format(Date(at))
     return if (lang == "ru") {
-        "SafePause: у $clientName в $time был звонок с признаками мошенничества" +
+        "Senim: у $clientName в $time был звонок с признаками мошенничества" +
             (number?.let { " (номер $it)" } ?: "") + ". Пожалуйста, позвоните ей/ему."
     } else {
-        "SafePause: $clientName $time-те алаяқтық белгілері бар қоңырау қабылдады" +
+        "Senim: $clientName $time-те алаяқтық белгілері бар қоңырау қабылдады" +
             (number?.let { " (нөмір $it)" } ?: "") + ". Оған хабарласыңыз."
     }
 }
@@ -36,7 +36,7 @@ object GuardianSms {
         val phone = settings.guardianPhone
         val granted = ctx.checkSelfPermission(Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED
         if (phone == null || !shouldTextGuardian(record, phone, granted)) return false
-        val text = guardianText(settings.clientName ?: "SafePause", record.at, record.number, settings.lang)
+        val text = guardianText(settings.clientName ?: "Senim", record.at, record.number, settings.lang)
         val sms = if (Build.VERSION.SDK_INT >= 31) ctx.getSystemService(SmsManager::class.java)
                   else @Suppress("DEPRECATION") SmsManager.getDefault()
         return runCatching { sms.sendMultipartTextMessage(phone, null, sms.divideMessage(text), null, null); true }.getOrDefault(false)

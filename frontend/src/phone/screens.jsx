@@ -36,7 +36,7 @@ export function HomeScreen({ persona, balance, P, t, history, scamCallMinutes, o
     <div className="app-screen home">
       <header className="home-head">
         <span className="avatar">{persona.name.split(" ").map((w) => w[0]).join("").slice(0, 2)}</span>
-        <div><small>SafePause</small><b>{P.hello(first)}</b></div>
+        <div><small>Senim</small><b>{P.hello(first)}</b></div>
       </header>
       <section className="balance-card">
         <span>{P.available}</span>
@@ -228,7 +228,7 @@ export function GuardianScreen({ persona, notes, P, t, lang, onRespond }) {
             <div key={n.id} className="g-note">
               <div className="notif">
                 <span className="notif-app"><Icon name="pause" size={14} stroke={2.6} /></span>
-                <div><small>SafePause · {hhmm(n.time)}</small><p>{t.gText(n)}</p></div>
+                <div><small>Senim · {hhmm(n.time)}</small><p>{t.gText(n)}</p></div>
               </div>
               <span className={"pill " + ({ open: "warn", confirmed: "ok", stopped: "bad", info: "bad" }[n.state])}>{t.gState[n.state]}</span>
               {n.state === "open" && (
