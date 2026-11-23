@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { Icon } from "../phone/PhoneFrame.jsx";
 import rulesJson from "../../../shared/call_rules.json";
 import scamCalls from "../../../shared/demo_calls_scam.json";
 import legitCalls from "../../../shared/demo_calls_legit.json";
@@ -41,6 +42,23 @@ const T = {
     qs: ["Ол мұны істеуден бас тартты ма?", "Басын бұрғанда беті бұлыңғырланды не шеті жыпылықтады ма?", "Қолы өткенде беті қолдың «үстінде» көрінді ме?", "Ерні сөзіне сай қозғалмай ма?"],
     vr: { LOOKS_NORMAL: "Жасанды бет белгілері табылмады", SUSPICIOUS: "Күдікті: жасанды бет белгілері бар", DID_NOT_COOPERATE: "Тексеруден бас тартты — сақ болыңыз" },
     noSpeech: "Тыңдауды бастау үшін жоғарыдағы батырманы басыңыз — келісімсіз тыңдамаймыз.",
+    title: "Қоңыраулар", liveTitle: "Микрофонмен тексеру",
+    liveSub: "Өзіңіз сөйлеңіз немесе нақты қоңырауды динамикке қойып, телефонды жақын ұстаңыз.",
+    start: "Бастау", demoCalls: "Демо қоңыраулар", whatsapp: "WhatsApp видео", phoneCall: "Ұялы байланыс",
+    consentTitle: "Senim бұл қоңырауды тексерсін бе?",
+    consentSub: "Сөйлеу телефонның ішінде мәтінге айналады. Келісімсіз тыңдамаймыз.",
+    startListen: "Тыңдауды бастау", stages: ["Таныстыру", "Қорқыту", "Сұрау", "Оқшаулау"],
+    micLevel: "Микрофон естіп тұр", hangUp: "Тұтқаны қою", retry: "Қайта көру",
+    micErr: {
+      denied: ["Микрофонға рұқсат берілмеген", "Адрес жолындағы құлып белгішесін басыңыз → «Микрофон» → «Рұқсат ету». Содан кейін «Қайта көру» басыңыз."],
+      nomic: ["Микрофон табылмады", "Микрофон қосулы екенін және оны басқа бағдарлама (Zoom, Teams) пайдаланып тұрмағанын тексеріңіз."],
+      network: ["Сөйлеуді тану серверіне қосылу мүмкін болмады", "Chrome сөйлеуді Google серверінде таниды. Интернетті тексеріп, «Қайта көру» басыңыз."],
+      unsupported: ["Бұл браузер сөйлеуді танымайды", "Сайтты компьютерде Google Chrome немесе Microsoft Edge арқылы ашыңыз. Safari мен Firefox бұл мүмкіндікті бермейді."],
+      lang: ["Қазақ тілі бұл браузерде танылмайды", "Орыс тілінде тыңдап тұрмыз."],
+      generic: ["Тыңдау басталмады", "Бетті жаңартып, қайта көріңіз. Немесе демо қоңырауды таңдаңыз."],
+    },
+    verdict: { HIGH: "Алаяқтық белгілері табылды", SUSPICIOUS: "Күдікті белгілер бар", LOW: "Қауіп белгісі табылмады" },
+    androidNote: "Нақты қоңырауды автоматты түрде тыңдау тек Android қосымшасында жұмыс істейді. Браузер телефон қоңырауына қол жеткізе алмайды.",
   },
   ru: {
     pick: "Сценарий звонка", pickHint: "Выберите звонок мошенника — телефон прочитает его вслух. Или проверьте вживую через микрофон.",
@@ -60,6 +78,23 @@ const T = {
     qs: ["Он отказался это делать?", "При повороте лицо размывалось или мерцал край?", "Когда рука проходила, лицо было видно «поверх» руки?", "Губы не совпадают с речью?"],
     vr: { LOOKS_NORMAL: "Признаков подменённого лица не найдено", SUSPICIOUS: "Подозрительно: есть признаки подмены лица", DID_NOT_COOPERATE: "Отказался от проверки — будьте осторожны" },
     noSpeech: "Чтобы начать, нажмите кнопку сверху — без согласия мы не слушаем.",
+    title: "Звонки", liveTitle: "Проверка через микрофон",
+    liveSub: "Говорите сами или включите настоящий звонок на громкую связь и держите телефон рядом.",
+    start: "Начать", demoCalls: "Демо-звонки", whatsapp: "Видео WhatsApp", phoneCall: "Сотовая связь",
+    consentTitle: "Проверить этот звонок с Senim?",
+    consentSub: "Речь превращается в текст прямо на телефоне. Без согласия мы не слушаем.",
+    startListen: "Начать слушать", stages: ["Представился", "Угроза", "Просьба", "Изоляция"],
+    micLevel: "Микрофон слышит", hangUp: "Положить трубку", retry: "Попробовать снова",
+    micErr: {
+      denied: ["Нет доступа к микрофону", "Нажмите на значок замка в адресной строке → «Микрофон» → «Разрешить». Затем нажмите «Попробовать снова»."],
+      nomic: ["Микрофон не найден", "Проверьте, что микрофон подключён и не занят другой программой (Zoom, Teams)."],
+      network: ["Нет связи с сервером распознавания", "Chrome распознаёт речь на серверах Google. Проверьте интернет и нажмите «Попробовать снова»."],
+      unsupported: ["Этот браузер не распознаёт речь", "Откройте сайт на компьютере в Google Chrome или Microsoft Edge. Safari и Firefox этого не умеют."],
+      lang: ["Казахский язык в этом браузере не распознаётся", "Слушаем на русском."],
+      generic: ["Не удалось начать", "Обновите страницу и попробуйте снова. Или выберите демо-звонок."],
+    },
+    verdict: { HIGH: "Найдены признаки мошенничества", SUSPICIOUS: "Есть подозрительные признаки", LOW: "Признаков опасности нет" },
+    androidNote: "Автоматически слушать настоящий звонок умеет только приложение для Android. Браузер не имеет доступа к телефонным звонкам.",
   },
 };
 
@@ -82,7 +117,9 @@ export default function CallGuard({ lang, onState }) {
   const [llm, setLlm] = useState(null);
   const [warn, setWarn] = useState(false);
   const [warnedAt, setWarnedAt] = useState(0);
-  const [error, setError] = useState("");
+  const [error, setError] = useState("");            // a key of t.micErr
+  const [notice, setNotice] = useState("");
+  const [micLevel, setMicLevel] = useState(0);
   const [secs, setSecs] = useState(0);
   const [manual, setManual] = useState(null);         // {i, answers} while the face check runs
   const [videoResult, setVideoResult] = useState(null);
@@ -149,124 +186,185 @@ export default function CallGuard({ lang, onState }) {
         await new Promise((r) => setTimeout(r, 500));
       }
     } else {                                                   // live microphone
+      setError(""); setNotice("");
       const handle = await startListening(liveLang, {
         onPartial: setPartial,
         onFinal: (text) => { setPartial(""); feed(text, liveLang, "caller"); },
-        onError: () => { setError(t.micError); setListening(false); },
+        onError: (code) => { setError(code); setListening(false); setMicLevel(0); mic.current = null; },
+        onLevel: setMicLevel,
+        onNotice: setNotice,
       });
-      if (!handle) { setError(t.micError); setListening(false); return; }
+      if (!handle) { setListening(false); return; }
       mic.current = handle;
     }
   };
 
-  const hangUp = () => { stopAll(); setListening(false); setScreen("summary"); };
-  const reset = () => { stopAll(); setScreen("pick"); setSc(null); setListening(false); };
+  const hangUp = () => { stopAll(); setListening(false); setMicLevel(0); setScreen("summary"); };
+  const reset = () => { stopAll(); setScreen("pick"); setSc(null); setListening(false); setError(""); setMicLevel(0); };
   const flagged = new Set(assessment?.hits.map((h) => h.phrase.text) || []);
   const reasons = assessment?.hits.map((h) => h.rule[lang]) || [];
   const mm = `${String(Math.floor(secs / 60)).padStart(2, "0")}:${String(secs % 60).padStart(2, "0")}`;
-
-  if (screen === "pick") return (
-    <div className="screen">
-      <h4 className="first">{t.pick}</h4>
-      <p className="hint">{t.pickHint}</p>
-      <div className="seg">
-        {["scam", "legit"].map((g) => <button key={g} className={group === g ? "on" : ""} onClick={() => setGroup(g)}>{t.groups[g]} · {(g === "scam" ? scamCalls : legitCalls).length}</button>)}
-      </div>
-      <button className="primary small-btn" onClick={() => { const list = group === "scam" ? SCAM : LEGIT; choose(list[Math.floor(Math.random() * list.length)]); }}>{t.random}</button>
-      <div className="recips scroll">
-        {(group === "scam" ? SCAM : LEGIT).map((c) => (
-          <button key={c.id} onClick={() => choose(c)}>
-            <b>{c.title}</b><small>{c.lang === "kk" ? "ҚАЗ" : "РУС"} · {c.caller}</small>
-          </button>
-        ))}
-      </div>
-      <button className="live-btn" onClick={() => choose(LIVE)}>🎙 {t.live}</button>
-      <label className="lbl" htmlFor="live-lang">{t.liveLang}</label>
-      <div className="seg">
-        {["kk", "ru"].map((l) => <button key={l} id={l === "kk" ? "live-lang" : undefined} className={liveLang === l ? "on" : ""} onClick={() => setLiveLang(l)}>{l === "kk" ? "Қазақша" : "Русский"}</button>)}
-      </div>
+  const STAGES = ["AUTHORITY", "THREAT", "REQUEST", "ISOLATION"];
+  const initials = (c) => (c.kind === "whatsapp" ? "WA" : "");
+  const Transcript = ({ list }) => (
+    <div className="cg-thread">
+      {list.map((l, i) => (
+        <p key={i} className={(l.who === "client" ? "me" : "them") + (flagged.has(l.text) ? " hot" : "")}>{cap(l.text)}</p>
+      ))}
     </div>
   );
+
+  if (screen === "pick") {
+    const list = group === "scam" ? SCAM : LEGIT;
+    return (
+      <div className="app-screen cg-pick">
+        <h1 className="large-title">{t.title}</h1>
+        <section className="cg-live">
+          <span className="cg-live-ic"><Icon name="phone" size={22} stroke={2} /></span>
+          <div className="cg-live-txt"><b>{t.liveTitle}</b><small>{t.liveSub}</small></div>
+          <div className="cg-live-row">
+            <div className="cg-seg" role="radiogroup" aria-label={t.liveLang}>
+              {["kk", "ru"].map((l) => <button key={l} role="radio" aria-checked={liveLang === l} className={liveLang === l ? "on" : ""} onClick={() => setLiveLang(l)}>{l === "kk" ? "Қазақша" : "Русский"}</button>)}
+            </div>
+            <button className="cg-start" onClick={() => { setSc(LIVE); setError(""); accept(); }}>{t.start}</button>
+          </div>
+        </section>
+        <div className="cg-list-head">
+          <h3 className="sec-title">{t.demoCalls}</h3>
+          <button className="link-btn" onClick={() => choose(list[Math.floor(Math.random() * list.length)])}>{t.random}</button>
+        </div>
+        <div className="cg-seg wide">
+          {["scam", "legit"].map((g) => <button key={g} className={group === g ? "on" : ""} onClick={() => setGroup(g)}>{t.groups[g]}</button>)}
+        </div>
+        <ul className="group cg-calls">
+          {list.map((c) => (
+            <li key={c.id}>
+              <button onClick={() => choose(c)}>
+                <span className={"cg-ava" + (c.kind === "whatsapp" ? " wa" : "")}>{c.kind === "whatsapp" ? "WA" : <Icon name="phone" size={16} stroke={2} />}</span>
+                <span className="g-txt"><b>{c.title}</b><small>{c.lang === "kk" ? "ҚАЗ" : "РУС"} · {c.caller}</small></span>
+                <Icon name="chevron" size={18} />
+              </button>
+            </li>
+          ))}
+        </ul>
+        <p className="cg-note">{t.androidNote}</p>
+      </div>
+    );
+  }
 
   if (screen === "ringing") return (
-    <div className="screen dialer center">
-      <small>{t.incoming}</small>
-      <div className="avatar">{sc.kind === "whatsapp" ? "WA" : "☎"}</div>
-      <h4>{sc.caller}</h4>
-      <div className="dial-buttons">
-        <button className="round red" onClick={reset} aria-label={t.decline}>✕</button>
-        <button className="round green ring" onClick={accept} aria-label={t.accept}>✆</button>
+    <div className="app-screen cg-dark cg-ring">
+      <div className="cg-ring-top">
+        <small>{sc.kind === "whatsapp" ? t.whatsapp : sc.id === "live" ? t.liveTitle : t.incoming}</small>
+        <h2>{sc.id === "live" ? (liveLang === "kk" ? "Қазақша" : "Русский") : sc.caller}</h2>
+        {sc.id !== "live" && <span>{sc.kind === "whatsapp" ? "WhatsApp" : t.phoneCall}</span>}
+      </div>
+      <span className={"cg-big-ava" + (sc.kind === "whatsapp" ? " wa" : "")}>{initials(sc) || <Icon name="phone" size={40} stroke={1.8} />}</span>
+      <div className="cg-actions">
+        <span><button className="cg-round red" onClick={reset} aria-label={t.decline}><Icon name="close" size={30} stroke={2.4} /></button><small>{t.decline}</small></span>
+        <span><button className="cg-round green" onClick={accept} aria-label={t.accept}><Icon name="phone" size={30} stroke={2.2} /></button><small>{t.accept}</small></span>
       </div>
     </div>
   );
 
-  if (screen === "summary") return (
-    <div className="screen">
-      <h4 className="first">{t.summary}</h4>
-      <span className={"risk " + level.toLowerCase()}>{t.lv[level]}</span>
-      {sc.label && (
-        <p className={"truth " + ((sc.label === "scam") === (level === "HIGH") ? "ok" : "bad")}>
-          {t.truth[sc.label]} · {(sc.label === "scam") === (level === "HIGH") ? t.verdictOk : t.verdictBad}
-        </p>
-      )}
-      {reasons.length > 0 && <><span className="lbl">{t.why}</span><ul className="why">{reasons.map((r, i) => <li key={i}>{r}</li>)}</ul></>}
-      {llm && <p className="hint">{t.claude}: {llm.reasons.join("; ")}</p>}
-      <span className="lbl">{t.transcript}</span>
-      <div className="chat small">{lines.length ? lines.map((l, i) => <div key={i} className={"msg " + (l.who === "client" ? "client" : "bot") + (flagged.has(l.text) ? " hot" : "")}>{cap(l.text)}</div>) : <p className="hint">—</p>}</div>
-      <button className="primary" onClick={reset}>{t.back}</button>
-    </div>
-  );
+  if (screen === "summary") {
+    const right = sc.label ? (sc.label === "scam") === (level === "HIGH") : null;
+    return (
+      <div className={"app-screen result cg-summary " + (level === "HIGH" ? "cancelled" : level === "SUSPICIOUS" ? "delayed" : "approved")}>
+        <span className="res-ic"><Icon name={level === "LOW" ? "check" : "alert"} size={38} stroke={2.4} /></span>
+        <h2>{t.verdict[level]}</h2>
+        <p className="res-sub">{sc.id === "live" ? t.liveTitle : sc.title} · {mm}</p>
+        {right != null && <p className={"cg-truth " + (right ? "ok" : "bad")}>{t.truth[sc.label]}. {right ? t.verdictOk : t.verdictBad}</p>}
+        {reasons.length > 0 && <><h3 className="sec-title">{t.why}</h3><ul className="cg-reasons">{reasons.map((r, i) => <li key={i}>{r}</li>)}</ul></>}
+        {llm && <p className="cg-note">{t.claude}: {llm.reasons.join("; ")}</p>}
+        <h3 className="sec-title">{t.transcript}</h3>
+        {lines.length ? <Transcript list={lines} /> : <p className="cg-note">—</p>}
+        <div className="cta-stack"><button className="btn primary-blue" onClick={reset}>{t.back}</button></div>
+      </div>
+    );
+  }
 
   // in-call screen
   const steps = t.steps.length;
+  const err = error && t.micErr[error];
   return (
-    <div className={"screen dialer" + (warn ? " shake" : "")}>
-      <div className="call-head">
-        <b>{sc.caller}</b><small>{mm}</small>
-      </div>
-      {sc.kind === "whatsapp" && <div className="video-tile"><span>📹</span></div>}
+    <div className={"app-screen cg-dark cg-call" + (warn ? " shake" : "")}>
+      <header className="cg-call-head">
+        <b>{sc.id === "live" ? t.liveTitle : sc.caller}</b>
+        <small>{listening ? t.listening : sc.kind === "whatsapp" ? t.whatsapp : t.phoneCall} · {mm}</small>
+      </header>
+      {sc.kind === "whatsapp" && <div className="cg-video" aria-hidden="true"><span className="cg-big-ava wa">WA</span></div>}
 
-      {!listening && <button className="bubble" onClick={listen}>{t.bubble}</button>}
-      {listening && !warn && !manual && (
-        <div className={"strip " + level.toLowerCase()}>
-          <b>{t.listening} · {t.lv[level]}</b>
-          {lines.slice(-4).map((l, i) => <span key={i} className={"turn " + l.who}><i>{t.who[l.who]}</i><span className="tx">{cap(l.text)}</span></span>)}
-          {partial && typeof partial === "object"
-            ? <span className={"turn speaking " + partial.who}><i>{t.who[partial.who]} 🔊</i><span className="tx">{partial.text}</span></span>
-            : <em>{partial || (sc.turns ? "" : t.partialHint)}</em>}
-        </div>
+      {!listening && !err && (
+        <section className="cg-consent">
+          <span className="cg-shield"><Icon name="shield" size={24} stroke={2} /></span>
+          <b>{t.consentTitle}</b>
+          <small>{t.consentSub}</small>
+          <button className="btn primary-blue" onClick={listen}>{t.startListen}</button>
+        </section>
       )}
-      {!listening && <p className="hint light">{t.noSpeech}</p>}
-      {error && <p className="error">{error}</p>}
+
+      {err && (
+        <section className="cg-error" role="alert">
+          <b>{err[0]}</b><small>{err[1]}</small>
+          <button className="btn outline" onClick={listen}>{t.retry}</button>
+        </section>
+      )}
+
+      {listening && !manual && (
+        <section className={"cg-live-card " + level.toLowerCase()}>
+          <div className="cg-level"><span className={"cg-chip " + level.toLowerCase()}>{t.lv[level]}</span></div>
+          <div className="cg-stages">{STAGES.map((st, i) => <span key={st} className={assessment?.stages.has(st) ? "on" : ""}>{t.stages[i]}</span>)}</div>
+          {!sc.turns && (
+            <div className="cg-meter" aria-label={t.micLevel}>
+              {Array.from({ length: 14 }, (_, i) => <i key={i} style={{ height: `${Math.max(12, Math.min(100, micLevel * 100 * (0.55 + ((i * 7) % 5) / 6)))}%` }} />)}
+              <small>{t.micLevel}</small>
+            </div>
+          )}
+          {notice && <p className="cg-notice">{t.micErr[notice][0]}. {t.micErr[notice][1]}</p>}
+          <Transcript list={lines.slice(-4)} />
+          {partial && typeof partial === "object"
+            ? <p className={"cg-speaking " + partial.who}>{partial.text}</p>
+            : <p className="cg-partial">{partial || (sc.turns ? "" : t.partialHint)}</p>}
+        </section>
+      )}
 
       {warn && (
-        <div className="warn-card" role="alert">
+        <div className="cg-warn" role="alert">
+          <span className="cg-warn-ic"><Icon name="alert" size={30} stroke={2.2} /></span>
           <b>{t.warnTitle}</b>
           <ul>{reasons.map((r, i) => <li key={i}>{r}</li>)}</ul>
           {llm && llm.reasons.length > 0 && <ul className="llm">{llm.reasons.map((r, i) => <li key={i}>{r}</li>)}</ul>}
-          <strong>{t.advice}</strong>
-          <button onClick={() => { setWarn(false); setWarnedAt(assessment.hits.length); }}>{t.ok}</button>
+          <p>{t.advice}</p>
+          <button className="btn white" onClick={hangUp}>{t.hangUp}</button>
+          <button className="btn ghost-white" onClick={() => { setWarn(false); setWarnedAt(assessment.hits.length); }}>{t.ok}</button>
         </div>
       )}
 
       {manual && (
-        <div className="manual-card">
+        <section className="cg-consent">
           {manual.i < steps
-            ? <><b>{t.steps[manual.i]}</b><button onClick={() => setManual({ ...manual, i: manual.i + 1 })}>{t.next}</button></>
+            ? <><b>{t.steps[manual.i]}</b><button className="btn primary-blue" onClick={() => setManual({ ...manual, i: manual.i + 1 })}>{t.next}</button></>
             : <><b>{t.qs[manual.i - steps]}</b>
-                <div className="yn">{[true, false].map((v) => (
+                <div className="yn-x">{[true, false].map((v) => (
                   <button key={String(v)} onClick={() => {
                     const answers = [...manual.answers, v];
                     if (answers.length < t.qs.length) setManual({ i: manual.i + 1, answers });
                     else { setManual(null); setVideoResult(judgeManual(answers)); }
                   }}>{v ? t.yes : t.no}</button>))}</div></>}
-        </div>
+        </section>
       )}
-      {videoResult && <div className={"strip " + (videoResult === "LOOKS_NORMAL" ? "low" : "high")}><b>{t.vr[videoResult]}</b><button className="link" onClick={() => setVideoResult(null)}>{t.ok}</button></div>}
+      {videoResult && (
+        <section className={"cg-video-result " + (videoResult === "LOOKS_NORMAL" ? "low" : "high")}>
+          <b>{t.vr[videoResult]}</b><button className="link-btn" onClick={() => setVideoResult(null)}>{t.ok}</button>
+        </section>
+      )}
 
-      <div className="dial-buttons bottom">
-        {sc.kind === "whatsapp" && !manual && <button className="pill-btn" onClick={() => { setVideoResult(null); setManual({ i: 0, answers: [] }); }}>{t.manual}</button>}
-        <button className="round red" onClick={hangUp} aria-label={t.end}>✆</button>
+      <div className="cg-controls">
+        {sc.kind === "whatsapp" && !manual && (
+          <span><button className="cg-round glass" onClick={() => { setVideoResult(null); setManual({ i: 0, answers: [] }); }} aria-label={t.manual}><Icon name="guardian" size={26} stroke={2} /></button><small>{t.manual}</small></span>
+        )}
+        <span><button className="cg-round red" onClick={hangUp} aria-label={t.end}><Icon name="phone" size={28} stroke={2.2} /></button><small>{t.end}</small></span>
       </div>
     </div>
   );

@@ -7,35 +7,82 @@ export function speechSupport() {
   return { web: typeof window !== "undefined" && !!(window.SpeechRecognition || window.webkitSpeechRecognition) };
 }
 
-export async function startListening(lang, { onPartial, onFinal, onError }) {
+/** Why live listening cannot start, in terms the person can act on. */
+function micError(e) {
+  const n = e?.name || e;
+  if (n === "NotAllowedError" || n === "not-allowed" || n === "service-not-allowed" || n === "SecurityError") return "denied";
+  if (n === "NotFoundError" || n === "audio-capture" || n === "NotReadableError") return "nomic";
+  if (n === "network") return "network";
+  if (n === "language-not-supported") return "lang";
+  return "generic";
+}
+
+/** Opens the microphone once (this is what shows the browser's permission prompt) and reports its level 0..1. */
+async function openMeter(onLevel) {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false } });
+  let ctx = null, raf = 0;
+  try {
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const an = ctx.createAnalyser(); an.fftSize = 512;
+    ctx.createMediaStreamSource(stream).connect(an);
+    const buf = new Uint8Array(an.fftSize);
+    const tick = () => {
+      an.getByteTimeDomainData(buf);
+      let sum = 0; for (const v of buf) sum += ((v - 128) / 128) ** 2;
+      onLevel?.(Math.min(1, Math.sqrt(sum / buf.length) * 4));
+      raf = requestAnimationFrame(tick);
+    };
+    tick();
+  } catch { /* the level meter is a nicety */ }
+  return () => { cancelAnimationFrame(raf); ctx?.close().catch(() => {}); stream.getTracks().forEach((tr) => tr.stop()); };
+}
+
+/**
+ * Live listening. On a normal page: the microphone (permission + level meter) and Chrome's Web Speech API,
+ * falling back from Kazakh to Russian recognition if the browser has no Kazakh. Inside a claude.ai artifact:
+ * the artifact's `dictation` capability. onError gets one of denied | nomic | network | unsupported | lang | generic.
+ */
+export async function startListening(lang, { onPartial, onFinal, onError, onLevel, onNotice }) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const inArtifact = window.self !== window.top;
-  if (SR && !inArtifact) {
-    const r = new SR();
-    r.lang = LOCALE[lang]; r.continuous = true; r.interimResults = true;
-    let active = true;
-    r.onresult = (e) => {
-      let partial = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const res = e.results[i];
-        if (res.isFinal) onFinal(res[0].transcript.trim()); else partial += res[0].transcript;
-      }
-      onPartial(partial);
+  if (!inArtifact) {
+    if (!SR) { onError("unsupported"); return null; }
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) { onError("denied"); return null; }
+    let closeMeter = () => {};
+    try { closeMeter = await openMeter(onLevel); } catch (e) { onError(micError(e)); return null; }
+    let active = true, locale = LOCALE[lang];
+    let r = null;
+    const begin = () => {
+      r = new SR();
+      r.lang = locale; r.continuous = true; r.interimResults = true;
+      r.onresult = (e) => {
+        let partial = "";
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const res = e.results[i];
+          if (res.isFinal) onFinal(res[0].transcript.trim()); else partial += res[0].transcript;
+        }
+        onPartial(partial);
+      };
+      r.onerror = (e) => {
+        if (e.error === "no-speech" || e.error === "aborted") return;
+        if (e.error === "language-not-supported" && locale !== LOCALE.ru) { locale = LOCALE.ru; onNotice?.("lang"); return; }
+        active = false; closeMeter(); onError(micError(e.error));
+      };
+      r.onend = () => { if (active) { try { begin(); } catch { /* restarting */ } } };
+      r.start();
     };
-    r.onerror = (e) => { if (e.error !== "no-speech" && e.error !== "aborted") { active = false; onError(e.error); } };
-    r.onend = () => { if (active) { try { r.start(); } catch { /* already restarting */ } } };
-    r.start();
-    return { kind: "web", stop: () => { active = false; r.stop(); } };
+    try { begin(); } catch (e) { closeMeter(); onError(micError(e)); return null; }
+    return { kind: "web", stop: () => { active = false; try { r?.stop(); } catch { /* already stopped */ } closeMeter(); } };
   }
   const dictation = window.claude?.use ? await window.claude.use("dictation").catch(() => null) : null;
-  if (!dictation) return null;
+  if (!dictation) { onError("unsupported"); return null; }
   const offs = [
     dictation.onPartial(({ text }) => onPartial(text)),
     dictation.onFinal(({ text }) => onFinal(text.trim())),
   ];
   try { await dictation.start({ language: lang }); }
   catch (e) {
-    try { await dictation.start(); } catch (e2) { offs.forEach((f) => f()); onError(e2?.code || "not_granted"); return null; }
+    try { await dictation.start(); } catch (e2) { offs.forEach((f) => f()); onError(micError(e2?.code || "not-allowed")); return null; }
   }
   return { kind: "dictation", stop: () => { offs.forEach((f) => f()); dictation.stop().catch(() => {}); } };
 }

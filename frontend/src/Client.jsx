@@ -229,7 +229,7 @@ export default function Client({ boot, lang, t }) {
           } else if (tab === "messages") {
             key = "messages"; screenNode = <MessagesScreen boot={boot} lang={lang} t={t} P={P} />;
           } else if (tab === "call") {
-            key = "call"; screenNode = <div className="app-screen call-host"><CallGuard lang={lang} onState={setCallState} /></div>;
+            key = "call"; screenNode = <div className="call-host"><CallGuard lang={lang} onState={setCallState} /></div>;
           } else if (flow === "analysis") {
             key = "analysis";
             screenNode = <AnalysisScreen check={check} P={P} lang={lang} amount={Number(sc.amount)}
