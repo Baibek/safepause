@@ -5,11 +5,13 @@ import { Icon } from "../phone/PhoneFrame.jsx";
 
 // Display details per demo recipient (the bank API knows only the account).
 const CONTACT = {
-  family: { phone: "+7 701 ••• 41 22", card: "4400 •••• •••• 7730", initials: "МС" },
-  utility: { phone: "—", card: "—", initials: "КТ" },
-  new_clean: { phone: "+7 747 ••• 08 15", card: "5169 •••• •••• 2208", initials: "ЕҚ" },
-  new_drop: { phone: "+7 705 ••• 93 40", card: "4405 •••• •••• 4471", initials: "?" },
+  family: { phone: "+7 701 ••• 41 22", card: "4400 •••• •••• 7730", initials: "МС", otherBank: false },
+  utility: { phone: "—", card: "—", initials: "КТ", otherBank: false },
+  new_clean: { phone: "+7 747 ••• 08 15", card: "5169 •••• •••• 2208", initials: "ЕҚ", otherBank: true },
+  new_drop: { phone: "+7 705 ••• 93 40", card: "4405 •••• •••• 4471", initials: "?", otherBank: true },
 };
+/** Whether the money leaves for another bank (the bank then confirms large transfers by a call). */
+export const isOtherBank = (recipientId, type) => type !== "iban" && Boolean(CONTACT[recipientId]?.otherBank);
 
 export const TRANSFER_TYPES = ["phone", "card", "iban"];
 const TYPE_ICON = { phone: "phone", card: "card", iban: "bank" };
@@ -77,6 +79,7 @@ export default function TransferSection({ step, setStep, boot, lang, t, P, balan
       <div className="recipient-card">
         <span className={"avatar sm" + (rec.known ? "" : " new")}>{CONTACT[rec.id]?.initials}</span>
         <div><b>{field}</b><small className={rec.known ? "ok" : "new"}>{rec.known ? `✓ ${rec.name[lang]}` : t.trNewRecipient}</small></div>
+        {type !== "iban" && <span className={"bank-chip" + (CONTACT[rec.id]?.otherBank ? " other" : "")}>{CONTACT[rec.id]?.otherBank ? P.verify.otherBank : P.verify.sameBank}</span>}
       </div>
 
       <label className="field-label" htmlFor="amt">{t.trAmount}</label>

@@ -1,6 +1,7 @@
 // Serverless port of backend/main.py: the whole Senim API runs in the browser.
 // The LLM is reached through the Claude artifact runtime (`sample`); without it, templates are used.
 import data from "./data.json";
+import verifyDoc from "../../../shared/verify_call.json";
 import rulesDoc from "../../../shared/message_rules.json";
 import { explain } from "./shap.js";
 
@@ -80,6 +81,10 @@ function seed() {
 }
 seed();
 
+
+// Bank verification call: the same rule and wording as backend/main.py, from shared/verify_call.json
+const VERIFY = { ratio: verifyDoc.ratio, otherMin: verifyDoc.other_bank_min, reasons: verifyDoc.reasons, script: verifyDoc.script, done: verifyDoc.done };
+
 const nextQuestion = (tx, lang) => ({ key: tx.queue[0], text: questions[tx.queue[0]][lang] });
 
 function notifyGuardian(tx, persona) {
@@ -158,6 +163,17 @@ const routes = {
       live: true, risky: [], drop_network: drop ? drop.network : null, scam_call: scamCall };
     TX.set(id, tx);
     const resp = { tx_id: id, risk: tx.risk, level: lvl, factors, action: "approve" };
+    const ratio = b.amount / Math.max(persona.avg_amount, 1);
+    const reasons = [...(ratio >= VERIFY.ratio ? ["unusual"] : []), ...(b.other_bank && b.amount >= VERIFY.otherMin ? ["other_bank"] : []),
+      ...(lvl === "medium" ? ["suspicious"] : [])];
+    if (lvl !== "high" && reasons.length) {
+      Object.assign(tx, { status: "verifying", paused: true, verify: reasons });
+      tx.transcript.push(...VERIFY.script[lang].map((text) => ({ from: "bot", text })));
+      const r0 = Math.round(ratio);
+      return { ...resp, action: "verify", verify: {
+        reasons: reasons.map((r) => ({ kk: VERIFY.reasons[r].kk.replace("{r:.0f}", r0), ru: VERIFY.reasons[r].ru.replace("{r:.0f}", r0) })),
+        script: VERIFY.script[lang] } };
+    }
     if (lvl === "low") return resp;
 
     const queue = [];
@@ -213,6 +229,23 @@ const routes = {
     }
     // victims are often coached to answer "correctly": high model risk still earns a cooling-off period
     return finish(tx, tx.risky.length || tx.level === "high" ? "delayed" : "approved", lang);
+  },
+
+  async "/api/verify/respond"(b) {
+    const tx = TX.get(b.tx_id);
+    if (!tx || tx.status !== "verifying") throw fail(404, "no verification call for this transfer");
+    if (!VERIFY.done[b.answer]) throw fail(400, "answer must be self, not_me or no_answer");
+    const lang = b.lang === "ru" ? "ru" : "kk";
+    const pressed = { self: { kk: "1 — өзім жасап жатырмын", ru: "1 — делаю сам" }, not_me: { kk: "2 — мен жасаған жоқпын", ru: "2 — это не я" },
+      no_answer: { kk: "Қоңырауға жауап берілмеді", ru: "Звонок без ответа" } }[b.answer][lang];
+    tx.transcript.push({ from: "client", text: pressed });
+    const decision = { self: "approved", not_me: "cancelled", no_answer: "delayed" }[b.answer];
+    tx.status = decision;
+    if (decision === "delayed") tx.delay_minutes = 60;
+    const g = decision !== "approved" ? notifyGuardian(tx, personas.find((p) => p.id === tx.persona)) : null;
+    const message = VERIFY.done[b.answer][lang];
+    tx.transcript.push({ from: "bot", text: message });
+    return { message, final: { decision, delay_minutes: tx.delay_minutes ?? null, guardian_notified: Boolean(g), verified: b.answer === "self" } };
   },
 
   async "/api/message/check"(b) {

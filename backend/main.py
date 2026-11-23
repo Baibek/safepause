@@ -199,6 +199,21 @@ class CheckIn(BaseModel):
     amount: float
     signals: Signals = Signals()
     lang: str = "kk"
+    other_bank: bool = False      # the recipient's account is in another bank
+
+
+class VerifyIn(BaseModel):
+    tx_id: str
+    answer: str                   # self | not_me | no_answer
+    lang: str = "kk"
+
+
+# Bank verification call: before an unusual transfer leaves, the bank calls the client, reads a short notice
+# about scams and asks to confirm. 1 = "I am doing it myself" -> the transfer goes; 2 = "not me" -> blocked.
+_VC = json.loads((Path(__file__).resolve().parent.parent / "shared" / "verify_call.json").read_text(encoding="utf-8"))
+VERIFY_RATIO = _VC["ratio"]                    # this many times the client's usual transfer
+VERIFY_OTHER_BANK_MIN = _VC["other_bank_min"]  # transfers to another bank from this amount
+VERIFY_REASONS, VERIFY_SCRIPT, VERIFY_DONE = _VC["reasons"], _VC["script"], _VC["done"]
 
 
 class AnswerIn(BaseModel):
@@ -291,6 +306,17 @@ def check(body: CheckIn):
           "live": True, "risky": [], "drop_network": drop["network"] if drop else None, "scam_call": scam_call}
     TX[tid] = tx
     resp = {"tx_id": tid, "risk": tx["risk"], "level": lvl, "factors": factors, "action": "approve"}
+    ratio = body.amount / max(persona["avg_amount"], 1.0)
+    reasons = (["unusual"] if ratio >= VERIFY_RATIO else []) + \
+              (["other_bank"] if body.other_bank and body.amount >= VERIFY_OTHER_BANK_MIN else []) + \
+              (["suspicious"] if lvl == "medium" else [])
+    if lvl != "high" and reasons:
+        tx.update(status="verifying", paused=True, verify=reasons)
+        tx["transcript"] += [{"from": "bot", "text": line} for line in VERIFY_SCRIPT[lang]]
+        resp.update(action="verify", verify={
+            "reasons": [{k: v.format(r=ratio) for k, v in VERIFY_REASONS[r].items()} for r in reasons],
+            "script": VERIFY_SCRIPT[lang]})
+        return resp
     if lvl == "low":
         return resp
 
@@ -356,6 +382,29 @@ def answer(body: AnswerIn):
     if tx["risky"] or tx["level"] == "high":
         return finish(tx, "delayed", lang)
     return finish(tx, "approved", lang)
+
+
+@app.post("/api/verify/respond")
+def verify_respond(body: VerifyIn):
+    tx = TX.get(body.tx_id)
+    if not tx or tx["status"] != "verifying":
+        raise HTTPException(404, "no verification call for this transfer")
+    if body.answer not in VERIFY_DONE:
+        raise HTTPException(400, "answer must be self, not_me or no_answer")
+    lang = body.lang if body.lang in ("kk", "ru") else "kk"
+    pressed = {"self": {"kk": "1 — өзім жасап жатырмын", "ru": "1 — делаю сам"},
+               "not_me": {"kk": "2 — мен жасаған жоқпын", "ru": "2 — это не я"},
+               "no_answer": {"kk": "Қоңырауға жауап берілмеді", "ru": "Звонок без ответа"}}[body.answer][lang]
+    tx["transcript"].append({"from": "client", "text": pressed})
+    decision = {"self": "approved", "not_me": "cancelled", "no_answer": "delayed"}[body.answer]
+    tx["status"] = decision
+    if decision == "delayed":
+        tx["delay_minutes"] = 60
+    g = notify_guardian(tx, PERSONAS[tx["persona"]]) if decision != "approved" else None
+    msg = VERIFY_DONE[body.answer][lang]
+    tx["transcript"].append({"from": "bot", "text": msg})
+    return {"message": msg, "final": {"decision": decision, "delay_minutes": tx.get("delay_minutes"),
+                                      "guardian_notified": bool(g), "verified": body.answer == "self"}}
 
 
 @app.post("/api/message/check")

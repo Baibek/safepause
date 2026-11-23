@@ -68,7 +68,7 @@ export function HomeScreen({ persona, balance, P, t, history, scamCallMinutes, o
 }
 
 /** Animated check: steps tick while the request runs, then the score counts up and the signals arrive one by one. */
-export function AnalysisScreen({ check, P, lang, amount, onLow, onRisk }) {
+export function AnalysisScreen({ check, P, lang, amount, onLow, onRisk, onVerify }) {
   const [step, setStep] = useState(0);
   const [shown, setShown] = useState(0);
   useEffect(() => {
@@ -112,14 +112,23 @@ export function AnalysisScreen({ check, P, lang, amount, onLow, onRisk }) {
         </ul>
       ) : (
         <>
-          <h3 className="an-title">{level === "low" ? P.lowText : P.why}</h3>
-          {level !== "low" && (
+          {check.action === "verify" ? (
+            <section className="vf-note">
+              <span className="vf-note-ic"><Icon name="phone" size={22} stroke={2} /></span>
+              <b>{P.verify.title}</b>
+              <small>{P.verify.lead}</small>
+              <ul>{check.verify.reasons.map((r, i) => <li key={i}>{r[lang]}</li>)}</ul>
+            </section>
+          ) : <h3 className="an-title">{level === "low" ? P.lowText : P.why}</h3>}
+          {level !== "low" && check.action !== "verify" && (
             <ul className="signals">
               {signals.map((f, i) => <li key={f.key} style={{ "--i": i }}><span className={"dot " + (f.key === "scam_call" || f.contribution > 1.5 ? "high" : "medium")} />{f[lang]}</li>)}
             </ul>
           )}
           <div className="cta-stack">
-            {level === "low"
+            {check.action === "verify"
+              ? <button className="btn primary-blue" onClick={onVerify}>{P.verify.start}</button>
+              : level === "low"
               ? <button className="btn primary-blue" onClick={onLow}>{P.sendNow}</button>
               : <button className="btn danger" onClick={onRisk}>{P.seeWarning}</button>}
           </div>
@@ -197,7 +206,8 @@ export function ResultScreen({ final, P, t, recipientName, amount, check, note, 
     <div className={"app-screen result " + d}>
       <span className="res-ic"><Icon name={icon} size={40} stroke={2.4} /></span>
       <h2>{P.resultTitle[d]}</h2>
-      <p className="res-sub">{d === "delayed" ? P.resultSub.delayed(final.delay_minutes) : P.resultSub[d]}</p>
+      <p className="res-sub">{final.message || (d === "delayed" ? P.resultSub.delayed(final.delay_minutes) : P.resultSub[d])}</p>
+      {final.verified && <span className="pill ok vf-ok"><Icon name="check" size={14} stroke={2.6} />{P.verify.verified}</span>}
       <dl className="details">{rows.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
       {final.guardian_notified && (
         <button className="guardian-chip" onClick={onGuardian}>

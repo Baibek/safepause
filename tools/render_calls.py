@@ -1,6 +1,6 @@
 """Renders every demo call to audio files with Piper voices (rhasspy/piper, MIT; voices trained on recordings
 of real speakers: ISSAI KazakhTTS for Kazakh, CC-BY-4.0). Output: one file per call,
-frontend/public/calls/<id>.mp3, and frontend/public/calls/manifest.json with each turn's start and end in seconds. Usage: python tools/render_calls.py <voices_dir>"""
+frontend/public/calls/<id>.mp3, and frontend/public/calls/manifest.json with each turn's start and end in seconds. Usage: python tools/render_calls.py <voices_dir> [--verify-only]"""
 import json, subprocess, sys, wave, zlib
 from pathlib import Path
 from piper import PiperVoice, SynthesisConfig
@@ -41,7 +41,38 @@ def render(text, lang, who, call_id):
     tmp.unlink()
     return pcm, {"voice": name, "speaker": speaker}
 
+BANK = {"kk": (KK, 2), "ru": ("ru_RU-irina-medium", None)}   # the bank's verification robot
+
+
+def render_verify(manifest):
+    """The bank's verification call: shared/verify_call.json script, one file per language (verify-<lang>.mp3)."""
+    script = json.loads((ROOT / "shared" / "verify_call.json").read_text())["script"]
+    for lang, lines in script.items():
+        name, speaker = BANK[lang]
+        marks, audio, t = [], bytearray(), 0.0
+        for text in lines:
+            cfg = SynthesisConfig(speaker_id=speaker, length_scale=1.05)
+            tmp = OUT / "_turn.wav"
+            with wave.open(str(tmp), "wb") as w:
+                voice(name).synthesize_wav(text, w, syn_config=cfg)
+            pcm = subprocess.run(["ffmpeg", "-loglevel", "error", "-i", str(tmp), "-ac", "1", "-ar", str(RATE), "-f", "s16le", "-"],
+                                 capture_output=True, check=True).stdout
+            tmp.unlink()
+            dur = len(pcm) / 2 / RATE
+            marks.append([round(t, 3), round(t + dur, 3)])
+            audio += pcm + bytes(int(0.35 * RATE) * 2); t += dur + 0.35
+        subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "s16le", "-ar", str(RATE), "-ac", "1", "-i", "-",
+                        "-b:a", "40k", str(OUT / f"verify-{lang}.mp3")], input=bytes(audio), check=True)
+        manifest[f"verify-{lang}"] = {"turns": marks, "cast": {"bank": {"voice": name, "speaker": speaker}}}
+        print("verify", lang, len(lines), flush=True)
+
+
 def main():
+    if "--verify-only" in sys.argv:
+        manifest = json.loads((OUT / "manifest.json").read_text())
+        render_verify(manifest)
+        (OUT / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1))
+        return
     shared = ROOT / "shared"
     replies = json.loads((shared / "demo_replies.json").read_text())
     calls = json.loads((shared / "demo_calls_scam.json").read_text()) + json.loads((shared / "demo_calls_legit.json").read_text())
@@ -65,6 +96,7 @@ def main():
                         "-b:a", "40k", str(OUT / f"{c['id']}.mp3")], input=bytes(audio), check=True)
         manifest[c["id"]] = {"turns": marks, "cast": cast}
         print(c["id"], len(turns), flush=True)
+    render_verify(manifest)
     (OUT / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1))
 
 if __name__ == "__main__":

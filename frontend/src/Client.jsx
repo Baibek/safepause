@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { api, fmt } from "./i18n.js";
 import CallGuard, { CALL_T } from "./call/CallGuard.jsx";
+import VerifyCall from "./phone/VerifyCall.jsx";
+import { isOtherBank } from "./transfer/TransferSection.jsx";
 import TransferSection from "./transfer/TransferSection.jsx";
 import PhoneFrame, { TabBar } from "./phone/PhoneFrame.jsx";
 import { PH } from "./phone/strings.js";
@@ -12,6 +14,8 @@ const PRESETS = {
   pScam: { persona: "aigul", recipient: "new_drop", amount: 1800000, on_call: true, unknown_caller: true, remote_app: false, night: false, pace: 180 },
   pRemote: { persona: "aigul", recipient: "new_drop", amount: 2300000, on_call: true, unknown_caller: true, remote_app: true, night: true, pace: 8 },
   pCoached: { persona: "daniyar", recipient: "new_clean", amount: 600000, on_call: true, unknown_caller: true, remote_app: false, night: false, pace: 180 },
+  pBig: { persona: "aigul", recipient: "family", amount: 150000, on_call: false, unknown_caller: false, remote_app: false, night: false, pace: 45 },
+  pOtherBank: { persona: "daniyar", recipient: "new_clean", amount: 90000, on_call: false, unknown_caller: false, remote_app: false, night: false, pace: 45 },
 };
 
 export function Factors({ factors, lang, t }) {
@@ -115,6 +119,7 @@ export default function Client({ boot, lang, t }) {
       const [res] = await Promise.all([
         api("/api/transfer/check", {
           persona: sc.persona, recipient_id: sc.recipient, amount: Number(sc.amount), lang,
+          other_bank: isOtherBank(sc.recipient, sc.ttype),
           signals: { on_call: sc.on_call, unknown_caller: sc.unknown_caller, remote_app: sc.remote_app,
             hour: sc.night ? 2 : null, session_seconds: sc.pace, scam_call_minutes: scamCallMinutes },
         }),
@@ -144,6 +149,16 @@ export default function Client({ boot, lang, t }) {
       return res;
     } catch (e) { setChat((c) => [...c, { from: "bot", text: String(e.message) }]); setErr(String(e.message)); }
     finally { setBusy(false); }
+  };
+  // the bank's verification call: 1 = made by the client -> sent; 2 = not them -> blocked; no answer -> postponed
+  const verifyAnswer = async (value) => {
+    try {
+      const res = await api("/api/verify/respond", { tx_id: check.tx_id, answer: value, lang });
+      setFinal({ ...res.final, message: res.message });
+      if (res.final.decision === "approved") addSpent();
+      loadNotes(); loadHistory();
+    } catch (e) { setFinal({ decision: "delayed", delay_minutes: 60, message: String(e.message) }); }
+    setFlow("result");
   };
   const decide = async (value) => { const r = await answer(value, null); if (r?.final) setFlow("result"); };
   const openDialog = () => {
@@ -199,9 +214,11 @@ export default function Client({ boot, lang, t }) {
         {(() => {
           const inCall = tab === "call" && callState && callState.screen === "call";
           const callPill = inCall ? { key: "guard", label: P.tabs.call }
+            : tab === "transfer" && flow === "verify" ? { key: "verify", label: P.verify.caller.split(" · ")[0] }
             : tab === "transfer" && sc.on_call ? { key: "transfer", label: sc.unknown_caller ? "+7 7•• •••" : P.tabs.call } : null;
           const showTabs = (tab === "transfer" ? flow === "form" && tStep === "menu" : tab === "call" ? !callState || callState.screen === "pick" : true);
-          const darkScreen = tab === "call" && callState && callState.screen !== "pick" && callState.screen !== "summary";
+          const darkScreen = (tab === "call" && callState && callState.screen !== "pick" && callState.screen !== "summary")
+            || (tab === "transfer" && flow === "verify");
           const recName = rec ? rec.name[lang] : "";
           const note = check && notes.find((n) => n.tx_id === check.tx_id);
           const tabs = [
@@ -233,7 +250,10 @@ export default function Client({ boot, lang, t }) {
           } else if (flow === "analysis") {
             key = "analysis";
             screenNode = <AnalysisScreen check={check} P={P} lang={lang} amount={Number(sc.amount)}
-              onLow={() => { setFinal({ decision: "approved" }); setFlow("result"); }} onRisk={() => setFlow("warning")} />;
+              onLow={() => { setFinal({ decision: "approved" }); setFlow("result"); }} onRisk={() => setFlow("warning")} onVerify={() => setFlow("verify")} />;
+          } else if (flow === "verify" && check?.verify) {
+            key = "verify";
+            screenNode = <VerifyCall check={check} amount={Number(sc.amount)} recipient={recName} lang={lang} P={P} onAnswer={verifyAnswer} />;
           } else if (flow === "warning" && check) {
             key = "warning";
             screenNode = <WarningScreen check={check} P={P} lang={lang} busy={busy}

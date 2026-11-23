@@ -446,3 +446,28 @@
 .cg-checks li.ok { color: #7EEDB3; }
 .cg-diag { background: #FFF4E5; color: #6B3A04; border-radius: 14px; padding: 10px 12px; display: grid; gap: 4px; }
 .cg-diag b { font-size: 14px; } .cg-diag small { font-size: 12.5px; line-height: 1.45; }
+
+/* Bank verification call: the bank's robot confirms an unusual transfer before it leaves */
+.vf-note { background: #fff; border-radius: 20px; padding: 16px; box-shadow: inset 0 0 0 1px var(--pn-line); display: grid; gap: 6px; text-align: left; align-self: stretch; }
+.vf-note-ic { width: 40px; height: 40px; border-radius: 13px; background: var(--pn-blue-soft); color: var(--pn-blue); display: grid; place-items: center; }
+.vf-note b { font-size: 17px; } .vf-note small { font-size: 13.5px; color: var(--pn-mute); line-height: 1.4; }
+.vf-note ul { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 3px; font-size: 14px; }
+.vf-official { display: inline-flex; align-items: center; gap: 5px; justify-self: center; font-size: 12.5px; color: #7EEDB3 !important; background: rgba(61,214,140,.14); padding: 4px 10px; border-radius: 999px; }
+.vf-ava { background: #2B63F6; }
+.vf-tx { background: #fff; color: var(--pn-navy); border-radius: 20px; padding: 14px 16px; display: grid; gap: 2px; }
+.vf-tx small { color: var(--pn-mute); font-size: 12.5px; } .vf-tx b { font-size: 26px; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.vf-tx span { font-size: 13.5px; color: var(--pn-mute); }
+.vf-tx ul { margin: 8px 0 0; padding: 8px 0 0 18px; border-top: 1px solid var(--pn-line); display: grid; gap: 2px; font-size: 13px; color: #7A3E06; }
+.vf-captions { display: grid; gap: 6px; flex: 1; min-height: 0; overflow-y: auto; }
+.vf-captions p { margin: 0; font-size: 14px; line-height: 1.4; color: #6F7DA6; transition: color .2s; }
+.vf-captions p.done { color: #B9C4E3; } .vf-captions p.now { color: #fff; font-weight: 600; }
+.vf-keys { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.vf-key { border: 0; border-radius: 18px; padding: 12px 10px; display: grid; justify-items: center; gap: 3px; color: #fff; font: 500 12.5px var(--pn-font); line-height: 1.25; cursor: pointer; text-align: center; }
+.vf-key b { font-size: 26px; line-height: 1; }
+.vf-key.yes { background: #1F9D63; } .vf-key.no { background: #D43A30; }
+.vf-key:disabled { opacity: .5; }
+.vf-key:focus-visible { outline: 3px solid #9DB8FF; outline-offset: 3px; }
+.vf .cg-controls { margin-top: 4px; }
+.vf-ok { display: inline-flex; align-items: center; gap: 5px; }
+.bank-chip { margin-left: auto; align-self: center; font-size: 11.5px; font-weight: 600; padding: 4px 9px; border-radius: 999px; background: var(--pn-blue-soft); color: var(--pn-blue); white-space: nowrap; }
+.bank-chip.other { background: #FFF1E0; color: #A85A07; }
