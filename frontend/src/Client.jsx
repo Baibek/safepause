@@ -3,6 +3,7 @@ import { setSessionPersona, api, fmt } from "./i18n.js";
 import CallGuard, { CALL_T } from "./call/CallGuard.jsx";
 import VerifyCall from "./phone/VerifyCall.jsx";
 import ProtectScreen from "./phone/ProtectScreen.jsx";
+import { Icon } from "./phone/PhoneFrame.jsx";
 import { isOtherBank } from "./transfer/TransferSection.jsx";
 import TransferSection from "./transfer/TransferSection.jsx";
 import PhoneFrame, { TabBar } from "./phone/PhoneFrame.jsx";
@@ -113,6 +114,14 @@ export default function Client({ boot, lang, t }) {
   const resetFlow = () => { setFlow("form"); setCheck(null); setChat([]); setFinal(null); setErr(""); setBusy(false); };
   const [protectView, setProtectView] = useState("main");
   const [protectNonce, setProtectNonce] = useState(0);   // tapping the tab again returns to the section's start
+  // Call Status push: when the bank really calls this client, the app says so on any screen (Monzo-style)
+  const [bankCall, setBankCall] = useState(null);
+  const [bankSeen, setBankSeen] = useState("");
+  useEffect(() => {
+    const poll = () => api(`/api/callstatus/${sc.persona}`).then((r) => setBankCall(r.active ? r.staff : null)).catch(() => {});
+    poll(); const i = setInterval(poll, 3000);
+    return () => clearInterval(i);
+  }, [sc.persona]);
   const go = (to) => {
     if (to === "transfer") { resetFlow(); setTStep("menu"); }
     if (to === "bankcall") { setProtectView("call"); setProtectNonce((n) => n + 1); setTab("protect"); return; }   // "Is this really the bank?"
@@ -267,7 +276,7 @@ export default function Client({ boot, lang, t }) {
           } else if (tab === "messages") {
             key = "messages"; screenNode = <MessagesScreen boot={boot} lang={lang} t={t} P={P} />;
           } else if (tab === "call") {
-            key = "call"; screenNode = <div className="call-host"><CallGuard lang={lang} onState={setCallState} /></div>;
+            key = "call"; screenNode = <div className="call-host"><CallGuard lang={lang} onState={setCallState} persona={sc.persona} staff={boot.staff || []} /></div>;
           } else if (flow === "analysis") {
             key = "analysis";
             screenNode = <AnalysisScreen check={check} P={P} lang={lang} amount={Number(sc.amount)}
@@ -297,6 +306,13 @@ export default function Client({ boot, lang, t }) {
           return (
             <PhoneFrame tone={tone} call={callPill}
               tabBar={showTabs && <TabBar tabs={tabs} active={tab === "guardian" ? "protect" : tab === "history" ? "home" : tab} onChange={go} />}>
+              {bankCall && tab !== "call" && bankSeen !== bankCall.since && (
+                <div className="push-banner" role="status">
+                  <span className="pb-ic"><Icon name="phone" size={16} stroke={2.4} /></span>
+                  <div><small>Senim · {P.push.now}</small><b>{P.push.title}</b><span>{P.push.body(bankCall.name, bankCall.id)}</span></div>
+                  <button onClick={() => setBankSeen(bankCall.since)} aria-label={P.push.close}><Icon name="close" size={14} stroke={2.4} /></button>
+                </div>
+              )}
               <div className={"screen-slot" + (key === "warning" ? " warn-bg" : darkScreen ? " dark-bg" : "")} key={key}>{screenNode}</div>
             </PhoneFrame>
           );

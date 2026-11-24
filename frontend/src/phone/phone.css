@@ -598,3 +598,22 @@
 .iphone .list-head h3 { font-size: 17px; color: var(--pn-navy); }
 .pr-person { background: var(--pn-white); border-radius: 18px; padding: 14px; box-shadow: inset 0 0 0 1px var(--pn-line); }
 .pr-person b { font-size: 16px; }
+
+/* Call Status inside the call and as a push banner */
+.cg-bankbtn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; align-self: center; border: 1px solid rgba(255,255,255,.28);
+  background: rgba(255,255,255,.1); color: #fff; font: 600 14.5px var(--pn-font); border-radius: 999px; padding: 10px 16px; cursor: pointer; }
+.cg-bankbtn:disabled { opacity: .7; } .cg-bankbtn:focus-visible { outline: 3px solid #9DB8FF; outline-offset: 2px; }
+.cg-bank { display: flex; gap: 10px; align-items: flex-start; border-radius: 18px; padding: 12px 14px; }
+.cg-bank > span { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; flex: none; color: #fff; }
+.cg-bank div { display: grid; gap: 2px; } .cg-bank b { font-size: 14.5px; line-height: 1.3; } .cg-bank small { font-size: 12.5px; line-height: 1.4; opacity: .9; }
+.cg-bank.ok { background: rgba(61,214,140,.16); color: #CFF7E2; } .cg-bank.ok > span { background: #1F9D63; }
+.cg-bank.bad { background: rgba(255,90,78,.2); color: #FFD5D0; } .cg-bank.bad > span { background: #EB4434; }
+.push-banner { position: absolute; top: 54px; left: 10px; right: 10px; z-index: 6; display: flex; gap: 10px; align-items: flex-start;
+  background: #FFFFFF; border-radius: 20px; padding: 11px 12px; color: var(--pn-navy);
+  box-shadow: 0 10px 30px rgba(15,27,61,.22), inset 0 0 0 1px rgba(15,27,61,.06); animation: pb-in .35s cubic-bezier(.2,.9,.3,1.2); }
+@keyframes pb-in { from { transform: translateY(-24px); opacity: 0; } }
+.pb-ic { width: 34px; height: 34px; border-radius: 10px; background: #30C25A; color: #fff; display: grid; place-items: center; flex: none; }
+.push-banner div { flex: 1; display: grid; gap: 1px; } .push-banner small { font-size: 11.5px; color: var(--pn-mute); }
+.push-banner b { font-size: 14.5px; } .push-banner span { font-size: 13px; line-height: 1.35; }
+.push-banner button { border: 0; background: #EEF1F7; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; cursor: pointer; flex: none; }
+@media (prefers-reduced-motion: reduce) { .push-banner { animation: none; } }

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Icon } from "../phone/PhoneFrame.jsx";
+import { api } from "../i18n.js";
 import rulesJson from "../../../shared/call_rules.json";
 import scamCalls from "../../../shared/demo_calls_scam.json";
 import legitCalls from "../../../shared/demo_calls_legit.json";
@@ -62,6 +63,10 @@ const T = {
     callLoading: "Қоңырау жазбасы жүктелуде…",
     verdict: { HIGH: "Алаяқтық белгілері табылды", SUSPICIOUS: "Күдікті белгілер бар", LOW: "Қауіп белгісі табылмады" },
     androidNote: "Нақты қоңырауды автоматты түрде тыңдау тек Android қосымшасында жұмыс істейді. Браузер телефон қоңырауына қол жеткізе алмайды.",
+    bankCheck: "Бұл шынымен банк пе?", bankChecking: "Банкпен тексеріп жатырмыз…",
+    bankReal: (n, id) => `Иә, бұл банк: ${n}, ID ${id}`, bankRealSub: "Ресми қоңырау. Соның өзінде SMS-код пен құпиясөзді айтпаңыз.",
+    bankFake: "Банк сізге қазір қоңырау шалып тұрған жоқ", bankFakeSub: "Тұтқаны қойыңыз. Банкке картаның артындағы нөмірмен өзіңіз хабарласыңыз.",
+    bankClaim: "Қоңырау шалушы өзін банк не мемлекеттік орган деп таныстырды, бірақ банкте сізбен ешкім сөйлеспей тұр",
     credits: "Сөйлеу браузердің ішінде Vosk арқылы танылады, интернетке жіберілмейді. Демо дауыстар: Piper, қазақ дауыстары ISSAI KazakhTTS (CC-BY-4.0).",
     checks: { mic: "Микрофон дыбыс береді", svc: "Сөйлеуді тану қосылды", txt: "Сөз мәтінге айналды" },
     diag: {
@@ -108,6 +113,10 @@ const T = {
     callLoading: "Загружается запись звонка…",
     verdict: { HIGH: "Найдены признаки мошенничества", SUSPICIOUS: "Есть подозрительные признаки", LOW: "Признаков опасности нет" },
     androidNote: "Автоматически слушать настоящий звонок умеет только приложение для Android. Браузер не имеет доступа к телефонным звонкам.",
+    bankCheck: "Это правда банк?", bankChecking: "Проверяем с банком…",
+    bankReal: (n, id) => `Да, это банк: ${n}, ID ${id}`, bankRealSub: "Официальный звонок. И всё равно не называйте коды из SMS и пароли.",
+    bankFake: "Банк сейчас вам не звонит", bankFakeSub: "Положите трубку. Позвоните в банк сами по номеру на обороте карты.",
+    bankClaim: "Звонящий представился банком или госорганом, но в банке с вами сейчас никто не говорит",
     credits: "Речь распознаётся прямо в браузере через Vosk и никуда не отправляется. Голоса демо: Piper, казахские голоса ISSAI KazakhTTS (CC-BY-4.0).",
     checks: { mic: "Микрофон даёт звук", svc: "Распознавание запущено", txt: "Речь превращается в текст" },
     diag: {
@@ -124,7 +133,7 @@ function judgeManual(a) {
 }
 
 /** The call part of the phone emulator. Reports its state to the side panel through onState. */
-export default function CallGuard({ lang, onState }) {
+export default function CallGuard({ lang, onState, persona = "aigul", staff = [] }) {
   const t = T[lang];
   const [screen, setScreen] = useState("pick");      // pick | ringing | call | summary
   const [sc, setSc] = useState(null);
@@ -146,6 +155,13 @@ export default function CallGuard({ lang, onState }) {
   const [manual, setManual] = useState(null);         // {i, answers} while the face check runs
   const [videoResult, setVideoResult] = useState(null);
   const det = useRef(null), mic = useRef(null), run = useRef(0), stagesAsked = useRef(0);
+  // Call Status: does the bank have an open session with this client right now? (Monzo-style "is it really us?")
+  const [bank, setBank] = useState(null);             // null | "checking" | {active, staff}
+  const bankAuto = useRef(false), bankSession = useRef(false);
+  const checkBank = async () => {
+    setBank("checking");
+    try { setBank(await api(`/api/callstatus/${persona}`)); } catch { setBank(null); }
+  };
 
   const level = assessment ? merge(assessment.level, llm?.level) : "LOW";
   const linesText = lines.map((l) => l.text);
@@ -191,6 +207,13 @@ export default function CallGuard({ lang, onState }) {
   const choose = (s) => { setSc(s); setScreen("ringing"); setError(""); };
   const accept = () => {
     det.current = new ScamDetector(RULES); stagesAsked.current = 0;
+    setBank(null); bankAuto.current = false;
+    if (sc.label === "legit") {
+      // a real employee calls from the bank's system, which opens a Call Status session for this client
+      const who = staff.length ? staff[[...sc.id].reduce((a, c) => a + c.charCodeAt(0), 0) % staff.length].id : undefined;
+      bankSession.current = true;
+      api("/api/callstatus/start", { persona, staff_id: who }, "staff").catch(() => { bankSession.current = false; });
+    }
     setLines([]); setAssessment(null); setLlm(null); setWarn(false); setWarnedAt(0); setPartial(""); setSecs(0);
     setManual(null); setVideoResult(null); setListening(false); setScreen("call");
   };
@@ -258,8 +281,21 @@ export default function CallGuard({ lang, onState }) {
     }
   };
 
-  const hangUp = () => { stopAll(); setListening(false); setMicLevel(0); setDiag(null); setDiagHint(""); setScreen("summary"); };
-  const reset = () => { stopAll(); setScreen("pick"); setSc(null); setListening(false); setError(""); setMicLevel(0); };
+  const endBankSession = () => {
+    if (bankSession.current) { bankSession.current = false; api("/api/callstatus/end", { persona }, "staff").catch(() => {}); }
+  };
+  // the caller claims to be the bank or the police: check with the bank at once, and warn if nobody there is calling
+  useEffect(() => {
+    if (screen !== "call" || bankAuto.current || !assessment?.stages.has("AUTHORITY")) return;
+    bankAuto.current = true;
+    api(`/api/callstatus/${persona}`).then((r) => {
+      setBank(r);
+      if (!r.active) { setWarn(true); navigator.vibrate?.([0, 300, 150, 300]); }
+    }).catch(() => {});
+  }, [assessment, screen]);
+  useEffect(() => () => endBankSession(), []);
+  const hangUp = () => { stopAll(); endBankSession(); setListening(false); setMicLevel(0); setDiag(null); setDiagHint(""); setScreen("summary"); };
+  const reset = () => { stopAll(); endBankSession(); setScreen("pick"); setSc(null); setListening(false); setError(""); setMicLevel(0); };
   const flagged = new Set(assessment?.hits.map((h) => h.phrase.text) || []);
   const reasons = assessment?.hits.map((h) => h.rule[lang]) || [];
   const mm = `${String(Math.floor(secs / 60)).padStart(2, "0")}:${String(secs % 60).padStart(2, "0")}`;
@@ -355,6 +391,18 @@ export default function CallGuard({ lang, onState }) {
       </header>
       {sc.kind === "whatsapp" && <div className="cg-video" aria-hidden="true"><span className="cg-big-ava wa">WA</span></div>}
 
+      {bank && bank !== "checking" ? (
+        <section className={"cg-bank " + (bank.active ? "ok" : "bad")} role={bank.active ? "status" : "alert"}>
+          <span><Icon name={bank.active ? "check" : "alert"} size={18} stroke={2.6} /></span>
+          <div><b>{bank.active ? t.bankReal(bank.staff.name, bank.staff.id) : t.bankFake}</b>
+            <small>{bank.active ? t.bankRealSub : bankAuto.current ? t.bankClaim : t.bankFakeSub}</small></div>
+        </section>
+      ) : (
+        <button className="cg-bankbtn" onClick={checkBank} disabled={bank === "checking"}>
+          <Icon name="shield" size={18} stroke={2.2} />{bank === "checking" ? t.bankChecking : t.bankCheck}
+        </button>
+      )}
+
       {!listening && !err && (
         <section className="cg-consent">
           <span className="cg-shield"><Icon name="shield" size={24} stroke={2} /></span>
@@ -401,7 +449,7 @@ export default function CallGuard({ lang, onState }) {
         <div className="cg-warn" role="alert">
           <span className="cg-warn-ic"><Icon name="alert" size={30} stroke={2.2} /></span>
           <b>{t.warnTitle}</b>
-          <ul>{reasons.map((r, i) => <li key={i}>{r}</li>)}</ul>
+          <ul>{[...(bank && bank !== "checking" && !bank.active ? [t.bankClaim] : []), ...reasons].map((r, i) => <li key={i}>{r}</li>)}</ul>
           {llm && llm.reasons.length > 0 && <ul className="llm">{llm.reasons.map((r, i) => <li key={i}>{r}</li>)}</ul>}
           <p>{t.advice}</p>
           <button className="btn white" onClick={hangUp}>{t.hangUp}</button>
