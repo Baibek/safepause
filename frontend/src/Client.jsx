@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { api, fmt } from "./i18n.js";
 import CallGuard, { CALL_T } from "./call/CallGuard.jsx";
 import VerifyCall from "./phone/VerifyCall.jsx";
+import ProtectScreen from "./phone/ProtectScreen.jsx";
 import { isOtherBank } from "./transfer/TransferSection.jsx";
 import TransferSection from "./transfer/TransferSection.jsx";
 import PhoneFrame, { TabBar } from "./phone/PhoneFrame.jsx";
@@ -12,7 +13,7 @@ import { STAGES } from "./call/detector.js";
 const PRESETS = {
   pNormal: { persona: "aigul", recipient: "family", amount: 15000, on_call: false, unknown_caller: false, remote_app: false, night: false, pace: 45 },
   pScam: { persona: "aigul", recipient: "new_drop", amount: 1800000, on_call: true, unknown_caller: true, remote_app: false, night: false, pace: 180 },
-  pRemote: { persona: "aigul", recipient: "new_drop", amount: 2300000, on_call: true, unknown_caller: true, remote_app: true, night: true, pace: 8 },
+  pRemote: { persona: "aigul", recipient: "new_drop", amount: 2000000, on_call: true, unknown_caller: true, remote_app: true, night: true, pace: 8 },
   pCoached: { persona: "daniyar", recipient: "new_clean", amount: 600000, on_call: true, unknown_caller: true, remote_app: false, night: false, pace: 180 },
   pBig: { persona: "aigul", recipient: "family", amount: 150000, on_call: false, unknown_caller: false, remote_app: false, night: false, pace: 45 },
   pOtherBank: { persona: "daniyar", recipient: "new_clean", amount: 90000, on_call: false, unknown_caller: false, remote_app: false, night: false, pace: 45 },
@@ -79,7 +80,9 @@ export default function Client({ boot, lang, t }) {
   const [spent, setSpent] = useState({});
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [tStep, setTStep] = useState("menu"); // transfers section: menu of transfer types | form
+  const [tStep, setTStep] = useState("menu");
+  const [prot, setProt] = useState(null);   // the client's protection settings, for the trusted-contact screen
+  useEffect(() => { if (tab === "guardian" || tab === "protect") api(`/api/protect/${sc.persona}`).then(setProt).catch(() => {}); }, [tab, sc.persona]); // transfers section: menu of transfer types | form
   const P = PH[lang];
   const [callState, setCallState] = useState(null);
   const [scamCallAt, setScamCallAt] = useState(null);   // set when Call Guard flags a call: the bank app pauses transfers for an hour
@@ -121,7 +124,9 @@ export default function Client({ boot, lang, t }) {
           persona: sc.persona, recipient_id: sc.recipient, amount: Number(sc.amount), lang,
           other_bank: isOtherBank(sc.recipient, sc.ttype),
           signals: { on_call: sc.on_call, unknown_caller: sc.unknown_caller, remote_app: sc.remote_app,
-            hour: sc.night ? 2 : null, session_seconds: sc.pace, scam_call_minutes: scamCallMinutes },
+            hour: sc.night ? 2 : null, session_seconds: sc.pace, scam_call_minutes: scamCallMinutes,
+            new_device: Boolean(sc.new_device), vpn: Boolean(sc.vpn), loan_minutes_ago: sc.loan ? 5 : null },
+          recipient_name: sc.recipient_name || null,
         }),
         new Promise((r) => setTimeout(r, 1100)),   // let the scan read as a scan
       ]);
@@ -198,6 +203,9 @@ export default function Client({ boot, lang, t }) {
         <label className="check"><input type="checkbox" checked={sc.on_call} onChange={(e) => set({ on_call: e.target.checked, unknown_caller: e.target.checked && sc.unknown_caller })} />{t.sigCall}</label>
         <label className="check sub"><input type="checkbox" disabled={!sc.on_call} checked={sc.unknown_caller} onChange={(e) => set({ unknown_caller: e.target.checked })} />{t.sigUnknown}</label>
         <label className="check"><input type="checkbox" checked={sc.remote_app} onChange={(e) => set({ remote_app: e.target.checked })} />{t.sigRemote}</label>
+        <label className="check"><input type="checkbox" checked={Boolean(sc.new_device)} onChange={(e) => set({ new_device: e.target.checked, loan: e.target.checked && sc.loan })} />{t.sigNewDevice}</label>
+        <label className="check sub"><input type="checkbox" disabled={!sc.new_device} checked={Boolean(sc.loan)} onChange={(e) => set({ loan: e.target.checked })} />{t.sigLoan}</label>
+        <label className="check"><input type="checkbox" checked={Boolean(sc.vpn)} onChange={(e) => set({ vpn: e.target.checked })} />{t.sigVpn}</label>
         <label className="field">{t.sigTime}
           <select value={sc.night ? "1" : "0"} onChange={(e) => set({ night: e.target.value === "1" })}>
             <option value="0">{t.timeNow}</option><option value="1">{t.timeNight}</option>
@@ -242,7 +250,10 @@ export default function Client({ boot, lang, t }) {
             key = "history"; screenNode = <HistoryScreen history={history} P={P} loading={historyLoading} />;
           } else if (tab === "guardian") {
             key = "guardian";
-            screenNode = <GuardianScreen persona={persona} notes={notes} P={P} t={t} lang={lang} onRespond={guardian} />;
+            screenNode = <GuardianScreen persona={persona} notes={notes} P={P} t={t} lang={lang} onRespond={guardian} trusted={prot?.persona === persona.id ? prot.trusted : undefined} />;
+          } else if (tab === "protect") {
+            key = "protect";
+            screenNode = <ProtectScreen persona={persona} P={P} lang={lang} onApprovals={() => setTab("guardian")} onChange={setProt} />;
           } else if (tab === "messages") {
             key = "messages"; screenNode = <MessagesScreen boot={boot} lang={lang} t={t} P={P} />;
           } else if (tab === "call") {
@@ -250,7 +261,8 @@ export default function Client({ boot, lang, t }) {
           } else if (flow === "analysis") {
             key = "analysis";
             screenNode = <AnalysisScreen check={check} P={P} lang={lang} amount={Number(sc.amount)}
-              onLow={() => { setFinal({ decision: "approved" }); setFlow("result"); }} onRisk={() => setFlow("warning")} onVerify={() => setFlow("verify")} />;
+              onLow={() => { setFinal({ decision: "approved" }); setFlow("result"); }} onRisk={() => setFlow("warning")} onVerify={() => setFlow("verify")}
+              onCooling={() => { setFinal({ decision: "delayed", delay_minutes: check.cooling.minutes, message: check.message }); setFlow("result"); loadHistory(); }} />;
           } else if (flow === "verify" && check?.verify) {
             key = "verify";
             screenNode = <VerifyCall check={check} amount={Number(sc.amount)} recipient={recName} lang={lang} P={P} onAnswer={verifyAnswer} />;
@@ -274,7 +286,7 @@ export default function Client({ boot, lang, t }) {
           const tone = darkScreen || key === "warning" ? "light" : "dark";
           return (
             <PhoneFrame tone={tone} call={callPill}
-              tabBar={showTabs && <TabBar tabs={tabs} active={tab === "guardian" ? "home" : tab} onChange={go} />}>
+              tabBar={showTabs && <TabBar tabs={tabs} active={tab === "guardian" || tab === "protect" ? "home" : tab} onChange={go} />}>
               <div className={"screen-slot" + (key === "warning" ? " warn-bg" : darkScreen ? " dark-bg" : "")} key={key}>{screenNode}</div>
             </PhoneFrame>
           );

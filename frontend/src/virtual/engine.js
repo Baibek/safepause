@@ -1,4 +1,7 @@
 // Serverless port of backend/main.py: the whole Senim API runs in the browser.
+import { evaluate as policyEvaluate, POLICY } from "./policy.js";
+import * as S from "./saqshy.js";
+import TEXTS from "../../../shared/saqshy_texts.json";
 // The LLM is reached through the Claude artifact runtime (`sample`); without it, templates are used.
 import data from "./data.json";
 import verifyDoc from "../../../shared/verify_call.json";
@@ -39,7 +42,9 @@ const iso = (offsetMin = 0) => {
   return d.toISOString().slice(0, 19) + "+05:00";
 };
 const uid = (n) => Math.random().toString(16).slice(2, 2 + n).toUpperCase();
-const levelOf = (r) => (r >= thresholds.high ? "high" : r >= thresholds.pause ? "medium" : "low");
+const levelOf = (r) => (r * 100 >= POLICY.thresholds.cool ? "high" : r * 100 >= POLICY.thresholds.warn ? "medium" : "low");
+const TXT = TEXTS.messages, COOLING_REASON = TEXTS.cooling_reason;
+const nf = (n) => Math.round(n).toLocaleString("ru-RU").replace(/\u00a0/g, " ");
 const fill = (s, v) => s.replace(/\{(\w)(?::[^}]*)?\}/g, (_, k) => Math.round(v[k]));
 
 function buildFeatures(a) {
@@ -87,20 +92,57 @@ const VERIFY = { ratio: verifyDoc.ratio, otherMin: verifyDoc.other_bank_min, rea
 
 const nextQuestion = (tx, lang) => ({ key: tx.queue[0], text: questions[tx.queue[0]][lang] });
 
-function notifyGuardian(tx, persona) {
-  const g = persona.guardian;
-  if (!g || tx.amount < data.guardian_min_amount || tx.guardian) return null;
-  const n = { id: uid(8), tx_id: tx.id, time: iso(), guardian: g.name, client: persona.name, amount: tx.amount,
-    recipient: tx.recipient, status: tx.status, risk: tx.risk, state: tx.status === "delayed" ? "open" : "info" };
+// the client's trusted contact; approval=true: a transfer scored 80+ waits for their decision (as backend/main.py)
+function notifyGuardian(tx, persona, approval = false) {
+  const g = S.trustedActive(persona.id);
+  if (!g || tx.guardian || (tx.amount < data.guardian_min_amount && !approval)) return null;
+  const n = { id: uid(8), tx_id: tx.id, time: S.nowIso(), guardian: g.name, client: persona.name, amount: tx.amount,
+    recipient: tx.recipient, status: tx.status, risk: tx.risk, state: approval || tx.status === "delayed" ? "open" : "info",
+    approval, channel: g.other_bank ? "sms" : "app" };
+  if (approval) n.deadline = new Date(S.now().getTime() + POLICY.trusted_timeout_hours * 3600_000).toISOString();
   NOTES.unshift(n);
-  tx.guardian = { name: g.name, state: n.state };
+  tx.guardian = { name: g.name, state: n.state, relation: g.relation };
+  S.audit("Senim", "system", approval ? "trusted_asked" : "trusted_notified", tx.id, `${g.name} (${n.channel})`);
   return g;
+}
+
+function expireApprovals() {
+  const t = S.now().getTime();
+  for (const n of NOTES) {
+    if (n.approval && n.state === "open" && new Date(n.deadline).getTime() <= t) {
+      const tx = TX.get(n.tx_id);
+      n.state = tx.guardian.state = "expired";
+      tx.status = n.status = "cancelled";
+      tx.transcript.push({ from: "bot", text: TXT.expired[tx.lang || "kk"] });
+      S.audit("Senim", "system", "rejected", tx.id, "trusted contact did not answer in time");
+    }
+  }
+}
+
+function syncGuardians() {
+  for (const p of personas) {
+    const g = S.trustedActive(p.id);
+    p.guardian = g ? { name: g.name.split(" ")[0], relation: g.relation } : null;
+  }
+}
+syncGuardians();
+
+function escalate(tx, lang) {
+  const persona = personas.find((p) => p.id === tx.persona);
+  const g = S.trustedActive(persona.id);
+  tx.status = g ? "awaiting_trusted" : "awaiting_analyst";
+  let msg;
+  if (g) { notifyGuardian(tx, persona, true); msg = TXT.awaiting_trusted[lang].replace("{n}", g.name).replace("{h}", POLICY.trusted_timeout_hours); }
+  else msg = TXT.awaiting_analyst[lang];
+  tx.transcript.push({ from: "bot", text: msg });
+  S.audit("Senim", "system", tx.status, tx.id, "score 80+ after the dialog");
+  return { message: msg, final: { decision: tx.status, guardian_notified: Boolean(g), trusted: g ? g.name : null } };
 }
 
 async function finish(tx, decision, lang) {
   const persona = personas.find((p) => p.id === tx.persona);
   tx.status = decision;
-  if (decision === "delayed") tx.delay_minutes = tx.level === "high" ? 60 : 30;
+  if (decision === "delayed") tx.delay_minutes = tx.cooling?.minutes || (tx.level === "high" ? 60 : 30);
   const g = decision !== "approved" ? notifyGuardian(tx, persona) : null;
   const facts = {
     cancelled: "The transfer was NOT sent; the money is safe on the client's account. Advise: hang up, bank staff and police never ask to move money to a 'safe account', call the bank yourself using the number on the back of the card.",
@@ -133,7 +175,7 @@ function messageRules(text, lang) {
 const routes = {
   async "/api/bootstrap"() {
     await Promise.race([samplePromise, new Promise((r) => setTimeout(r, 1200))]);
-    return { personas, recipients, llm: llmOn(), thresholds, samples: rulesDoc.samples, virtual: true };
+    return { personas, recipients, llm: llmOn(), thresholds, samples: rulesDoc.samples, staff: S.SEED.staff, virtual: true };
   },
 
   async "/api/transfer/check"(b) {
@@ -141,13 +183,18 @@ const routes = {
     if (!persona || !rec) throw fail(404, "unknown persona or recipient");
     if (!(b.amount > 0) || b.amount > persona.balance) throw fail(400, b.lang === "ru" ? "Сумма должна быть больше нуля и не превышать остаток" : "Сома нөлден көп және қалдықтан аспауы керек");
     const lang = b.lang === "ru" ? "ru" : "kk", s = b.signals || {};
+    const free = S.available(persona.id, persona.balance);
+    if (b.amount > free) {                                       // money in the safe cannot leave digitally
+      S.audit(persona.name, "client", "blocked_locked", rec.account, `${b.amount} > ${free}`);
+      throw fail(409, TXT.locked[lang].replace("{a}", nf(free)));
+    }
+    const hour = s.hour ?? new Date(Date.now() + 5 * 3600000).getUTCHours();
     const drop = DROP[rec.account];
     const feats = buildFeatures({ amount: b.amount, avg: persona.avg_amount, balance: persona.balance, newRecipient: !rec.known,
-      hour: s.hour ?? new Date(Date.now() + 5 * 3600000).getUTCHours(), onCall: s.on_call, unknown: s.unknown_caller, remote: s.remote_app,
+      hour, onCall: s.on_call, unknown: s.unknown_caller, remote: s.remote_app,
       session: s.session_seconds ?? 45, age: persona.age, recAge: rec.age_days, drop: drop ? drop.score : 0.05 });
-    let { risk, contrib } = explain(data, feats);
+    const { risk: modelRisk, contrib } = explain(data, feats);
     const id = `TX-${uid(6)}`, factors = factorsFor(feats, contrib);
-    // same rule as backend/main.py: a scam call flagged on this phone within the hour pauses any transfer
     const scamCall = s.scam_call_minutes != null && s.scam_call_minutes >= 0 && s.scam_call_minutes <= 60;
     if (scamCall) {
       const m = Math.round(s.scam_call_minutes);
@@ -155,40 +202,53 @@ const routes = {
         kk: `${m < 1 ? "Жаңа ғана" : `${m} минут бұрын`} телефоныңызда алаяқтық белгілері бар қоңырау анықталды`,
         ru: `${m < 1 ? "Только что" : `${m} мин назад`} на вашем телефоне распознан звонок с признаками мошенничества`,
         en: `Senim flagged a scam phone call on this device ${m} minutes ago` });
-      risk = Math.max(risk, 0.95);
     }
-    const lvl = levelOf(risk);
-    const tx = { id, time: iso(), client: persona.name, age: persona.age, persona: persona.id, recipient: rec.account, amount: b.amount,
-      risk: Math.round(risk * 1000) / 1000, level: lvl, status: "approved", paused: lvl !== "low", factors, transcript: [], guardian: null,
-      live: true, risky: [], drop_network: drop ? drop.network : null, scam_call: scamCall };
+    const names = b.recipient_name && !rec.known ? S.nameCheck(rec.id, b.recipient_name) : null;
+    const pol = policyEvaluate({
+      amount: b.amount, amount_ratio: b.amount / Math.max(persona.avg_amount, 1), hour, model_risk: modelRisk,
+      new_recipient: !rec.known, other_bank: Boolean(b.other_bank), new_device: Boolean(s.new_device), on_call: Boolean(s.on_call),
+      unknown_caller: Boolean(s.unknown_caller), scam_call_minutes: s.scam_call_minutes ?? null, remote_access: Boolean(s.remote_app),
+      rooted: Boolean(s.rooted), vpn: Boolean(s.vpn), drop_list: Boolean(S.DROP_LIST[rec.account]),
+      senders_last_hour: S.SEED.senders_last_hour[rec.id] || 0, loan_minutes_ago: s.loan_minutes_ago ?? null,
+      name_match: names ? names.match : null });
+    const risk = pol.score / 100, lvl = levelOf(risk), tier = pol.tier;
+    const tx = { id, time: S.nowIso(), client: persona.name, age: persona.age, persona: persona.id, recipient: rec.account, amount: b.amount,
+      risk, model_risk: Math.round(modelRisk * 1000) / 1000, level: lvl, tier, signals: pol.signals, status: "approved",
+      paused: tier !== "pass" || Boolean(pol.cooling), factors, transcript: [], guardian: null, live: true, risky: [], lang,
+      drop_network: drop ? drop.network : null, scam_call: scamCall, cooling: pol.cooling };
     TX.set(id, tx);
-    const resp = { tx_id: id, risk: tx.risk, level: lvl, factors, action: "approve" };
-    const ratio = b.amount / Math.max(persona.avg_amount, 1);
-    const reasons = [...(ratio >= VERIFY.ratio ? ["unusual"] : []), ...(b.other_bank && b.amount >= VERIFY.otherMin ? ["other_bank"] : []),
-      ...(lvl === "medium" ? ["suspicious"] : [])];
-    if (lvl !== "high" && reasons.length) {
-      Object.assign(tx, { status: "verifying", paused: true, verify: reasons });
-      tx.transcript.push(...VERIFY.script[lang].map((text) => ({ from: "bot", text })));
-      const r0 = Math.round(ratio);
-      return { ...resp, action: "verify", verify: {
-        reasons: reasons.map((r) => ({ kk: VERIFY.reasons[r].kk.replace("{r:.0f}", r0), ru: VERIFY.reasons[r].ru.replace("{r:.0f}", r0) })),
-        script: VERIFY.script[lang] } };
+    S.audit("Senim", "system", tier, id, pol.signals.map((x) => `${x.key}+${x.points}`).join(", ") || "no signals");
+    const resp = { tx_id: id, risk, score: pol.score, tier, signals: pol.signals, level: lvl, factors, action: "approve", name_check: names };
+
+    if (tier === "pass") {
+      if (pol.cooling) {                                        // e.g. the first large transfer to a new recipient
+        const m = pol.cooling.minutes;
+        Object.assign(tx, { status: "delayed", delay_minutes: m });
+        const message = TXT.cooling[lang].replace("{m}", m);
+        tx.transcript.push({ from: "bot", text: message });
+        return { ...resp, action: "cooling", message, cooling: { ...pol.cooling, text: COOLING_REASON[pol.cooling.reason] } };
+      }
+      return resp;
     }
-    if (lvl === "low") return resp;
+    // warn without a live call or remote control: the bank's verification call ("press 1 if it is you")
+    if (tier === "warn" && !(s.on_call || s.remote_app || scamCall)) {
+      Object.assign(tx, { status: "verifying", verify: pol.signals.map((x) => x.key) });
+      tx.transcript.push(...VERIFY.script[lang].map((text) => ({ from: "bot", text })));
+      return { ...resp, action: "verify", verify: { reasons: pol.signals.map((x) => ({ kk: x.kk, ru: x.ru })), script: VERIFY.script[lang] } };
+    }
 
     const queue = [];
-    if (s.on_call || lvl === "high" || scamCall) queue.push("call");
+    if (s.on_call || tier === "cool" || tier === "escalate" || scamCall) queue.push("call");
     if (s.remote_app) queue.push("remote");
-    if (lvl === "high") queue.push("safe");
+    if (tier === "cool" || tier === "escalate") queue.push("safe");
     if (!rec.known) queue.push("known");
     tx.queue = queue.length ? queue : ["call"];
     tx.status = "in_dialog";
-    const first = ["scam_call", "on_call", "unknown_caller", "remote_app", "recipient_drop_score", "new_recipient", "amount_ratio"];
-    const rank = (f) => (first.includes(f.key) ? first.indexOf(f.key) : 99);
-    const telling = (f) => f.contribution > 0 && !(f.key === "amount_ratio" && f.value < 1.5);
-    const positive = factors.filter(telling).sort((a, c) => rank(a) - rank(c)).slice(0, 3);
-    let msg = await ask(`${SYSTEM(lang, 3)}Transfer: ${b.amount} KZT to ${rec.account}.\nTop reasons from the risk model (most important first): ${positive.map((f) => f.en).join("; ")}.\nWrite the opening message: say that the transfer is paused for a moment, name the 1-2 most telling reasons in everyday words, and say you will ask a couple of quick questions. Do not ask the questions yourself.`);
-    if (!msg) msg = T.opening[lang].replace("{r}", positive.slice(0, 2).map((f) => f[lang][0].toLowerCase() + f[lang].slice(1)).join("; "));
+    // for the client message, lead with the signals a person can verify themselves (the policy's, not the model's)
+    const lead = pol.signals.filter((x) => x.key !== "model").slice(0, 2);
+    const leadList = lead.length ? lead : pol.signals.slice(0, 1);
+    let msg = await ask(`${SYSTEM(lang, 3)}Transfer: ${b.amount} KZT to ${rec.account}.\nWarning signs found (most important first): ${leadList.map((x) => x.ru).join("; ")}.\nWrite the opening message: say that the transfer is paused for a moment, name the 1-2 most telling reasons in everyday words, and say you will ask a couple of quick questions. Do not ask the questions yourself.`);
+    if (!msg) msg = T.opening[lang].replace("{r}", leadList.map((x) => x[lang][0].toLowerCase() + x[lang].slice(1)).join("; "));
     tx.transcript.push({ from: "bot", text: msg });
     const q = nextQuestion(tx, lang);
     tx.transcript.push({ from: "bot", text: q.text });
@@ -227,7 +287,9 @@ const routes = {
       tx.transcript.push({ from: "bot", text: nq.text });
       return { question: nq };
     }
-    // victims are often coached to answer "correctly": high model risk still earns a cooling-off period
+    // victims are often coached to answer "correctly", so the policy still decides:
+    // 80+ waits for the trusted contact (or an analyst), 60-80 gets a cooling-off period
+    if (tx.tier === "escalate") return escalate(tx, lang);
     return finish(tx, tx.risky.length || tx.level === "high" ? "delayed" : "approved", lang);
   },
 
@@ -239,11 +301,14 @@ const routes = {
     const pressed = { self: { kk: "1 — өзім жасап жатырмын", ru: "1 — делаю сам" }, not_me: { kk: "2 — мен жасаған жоқпын", ru: "2 — это не я" },
       no_answer: { kk: "Қоңырауға жауап берілмеді", ru: "Звонок без ответа" } }[b.answer][lang];
     tx.transcript.push({ from: "client", text: pressed });
-    const decision = { self: "approved", not_me: "cancelled", no_answer: "delayed" }[b.answer];
+    S.audit(tx.client, "client", "verify_" + b.answer, tx.id, "bank verification call");
+    let decision = { self: "approved", not_me: "cancelled", no_answer: "delayed" }[b.answer];
+    const cooling = tx.cooling;
+    if (decision === "approved" && cooling) decision = "delayed";   // confirmed, but a new recipient / fresh loan still waits
     tx.status = decision;
-    if (decision === "delayed") tx.delay_minutes = 60;
+    if (decision === "delayed") tx.delay_minutes = cooling && b.answer === "self" ? cooling.minutes : 60;
     const g = decision !== "approved" ? notifyGuardian(tx, personas.find((p) => p.id === tx.persona)) : null;
-    const message = VERIFY.done[b.answer][lang];
+    const message = b.answer === "self" && cooling ? TXT.cooling[lang].replace("{m}", cooling.minutes) : VERIFY.done[b.answer][lang];
     tx.transcript.push({ from: "bot", text: message });
     return { message, final: { decision, delay_minutes: tx.delay_minutes ?? null, guardian_notified: Boolean(g), verified: b.answer === "self" } };
   },
@@ -261,7 +326,7 @@ const routes = {
       advice: verdict === ai.verdict && ai.advice ? String(ai.advice) : rulesDoc.advice[verdict][lang], source: "llm" };
   },
 
-  async "/api/guardian/notifications"() { return NOTES.map((n) => ({ ...n })); },
+  async "/api/guardian/notifications"() { expireApprovals(); return NOTES.map((n) => ({ ...n })); },
 
   async "/api/guardian/respond"(b) {
     const n = NOTES.find((x) => x.id === b.id);
@@ -269,24 +334,140 @@ const routes = {
     const tx = TX.get(n.tx_id);
     tx.status = n.status = b.action === "confirm" ? "approved" : "cancelled";
     n.state = tx.guardian.state = b.action === "confirm" ? "confirmed" : "stopped";
+    S.audit(n.guardian, "trusted", b.action === "confirm" ? "approved" : "rejected", tx.id, "trusted contact decision");
     return { ...n };
   },
 
   async "/api/dashboard"() {
+    expireApprovals();
     const txs = [...TX.values()].sort((a, b) => (a.time < b.time ? 1 : -1)).map((t) => ({ ...t, transcript: [...t.transcript] }));
+    const held = ["cancelled", "delayed", "awaiting_trusted", "awaiting_analyst"];
+    const done = txs.filter((t) => t.paused && ["approved", "cancelled"].includes(t.status));
     return {
       summary: { checked: txs.length, paused: txs.filter((t) => t.paused).length,
         cancelled: txs.filter((t) => t.status === "cancelled").length, delayed: txs.filter((t) => t.status === "delayed").length,
-        protected_amount: txs.filter((t) => ["cancelled", "delayed"].includes(t.status)).reduce((a, t) => a + t.amount, 0) },
+        awaiting: txs.filter((t) => t.status === "awaiting_trusted" || t.status === "awaiting_analyst").length,
+        protected_amount: txs.filter((t) => held.includes(t.status)).reduce((a, t) => a + t.amount, 0),
+        false_positive_share: done.length ? Math.round((done.filter((t) => t.status === "approved").length / done.length) * 1000) / 1000 : 0 },
+      adoption: S.adoption(), drop_list: Object.values(S.DROP_LIST),
       transactions: txs, metrics: data.metrics, graph_quality: graph.quality, llm: llmOn(),
     };
   },
 
   async "/api/graph"() { return graph; },
-  async "/api/demo/reset"() { seed(); return { ok: true }; },
+  async "/api/demo/reset"() { S.reset(); syncGuardians(); seed(); return { ok: true }; },
+
+  // ---------------------------------------------------------------- Senim Saqshy (same as backend/main.py)
+  async "/api/protect/trusted/invite"(b) {
+    personaOr404(b.persona);
+    if (String(b.name || "").trim().length < 2 || String(b.phone || "").replace(/\D/g, "").length < 10) throw fail(400, "name and a full phone number are required");
+    S.client(b.persona).trusted = { name: b.name.trim(), relation: { kk: b.relation_kk || "туысы", ru: b.relation_ru || "родственник" },
+      phone: b.phone, other_bank: Boolean(b.other_bank), state: "invited" };
+    S.audit(personaOr404(b.persona).name, "client", "trusted_invited", b.persona, `${b.name} ${b.phone} via ${b.other_bank ? "sms" : "app"}`);
+    syncGuardians();
+    return protection(b.persona);
+  },
+  async "/api/protect/trusted/accept"(b) {
+    const t = S.client(b.persona).trusted;
+    if (!t || t.state !== "invited") throw fail(400, "no pending invitation");
+    t.state = "active";
+    S.audit(t.name, "trusted", "trusted_accepted", b.persona, "consent given");
+    syncGuardians();
+    return protection(b.persona);
+  },
+  async "/api/protect/trusted/remove"(b) {
+    const p = personaOr404(b.persona);
+    S.client(b.persona).trusted = null;
+    S.audit(p.name, "client", "trusted_removed", b.persona);
+    syncGuardians();
+    return protection(b.persona);
+  },
+  async "/api/protect/lock"(b) {
+    const p = personaOr404(b.persona), c = S.client(b.persona);
+    if (!(b.amount >= 0) || b.amount > p.balance) throw fail(400, "amount must be within the balance");
+    if (b.amount < c.locked) throw fail(403, "money leaves the safe only at an ATM or a branch with biometrics");
+    c.locked = b.amount;
+    S.audit(p.name, "client", "locked", b.persona, String(b.amount));
+    return protection(b.persona);
+  },
+  async "/api/protect/unlock"(b) {
+    const p = personaOr404(b.persona), c = S.client(b.persona);
+    if (!["atm", "branch"].includes(b.channel) || !b.biometric) throw fail(403, "the safe opens only at an ATM or a branch after biometrics");
+    c.locked = Math.max(0, c.locked - b.amount);
+    S.audit(p.name, "client", "unlocked", b.persona, `${b.amount} at ${b.channel}, biometrics ok`);
+    return protection(b.persona);
+  },
+  async "/api/callstatus/start"(b) {
+    personaOr404(b.persona);
+    const st = S.staff(b.staff_id || S.SEED.staff[0].id);
+    if (!st) throw fail(404, "unknown staff id");
+    S.SESSIONS[b.persona] = { ...st, since: S.nowIso() };
+    S.audit(st.name, "staff", "call_started", b.persona, st.id);
+    return { ...S.SESSIONS[b.persona] };
+  },
+  async "/api/callstatus/end"(b) {
+    const st = S.SESSIONS[b.persona];
+    delete S.SESSIONS[b.persona];
+    if (st) S.audit(st.name, "staff", "call_ended", b.persona, st.id);
+    return { ok: true };
+  },
+  async "/api/recipient/check"(b) {
+    const rec = recipients.find((r) => r.id === b.recipient_id);
+    if (!rec) throw fail(404, "unknown recipient");
+    return { ...(S.nameCheck(rec.id, b.name) || { match: null, owner_masked: null }), drop_list: Boolean(S.DROP_LIST[rec.account]) };
+  },
+  async "/api/analyst/decide"(b) {
+    const tx = TX.get(b.tx_id);
+    if (!tx || !["awaiting_analyst", "awaiting_trusted", "in_dialog", "delayed", "verifying"].includes(tx.status)) throw fail(400, "this transfer is not waiting for a decision");
+    if (b.action === "to_trusted") {
+      const persona = personas.find((p) => p.id === tx.persona);
+      if (!persona || !notifyGuardian(tx, persona, true)) throw fail(400, "the client has no active trusted contact");
+      tx.status = "awaiting_trusted";
+    } else if (b.action === "approve" || b.action === "reject") {
+      tx.status = b.action === "approve" ? "approved" : "cancelled";
+      for (const n of NOTES) if (n.tx_id === tx.id && n.state === "open") { n.state = "closed"; n.status = tx.status; }
+    } else throw fail(400, "action must be approve, reject or to_trusted");
+    S.audit(b.analyst || "Аналитик", "analyst", b.action, tx.id, b.reason || "");
+    return { ...tx };
+  },
+  async "/api/analyst/droplist"(b) {
+    if (!String(b.account || "").trim()) throw fail(400, "account is required");
+    S.DROP_LIST[b.account] = { account: b.account, reason: b.reason || "", by: b.analyst || "Аналитик", time: S.nowIso() };
+    S.audit(b.analyst || "Аналитик", "analyst", "droplist_added", b.account, b.reason || "");
+    return Object.values(S.DROP_LIST);
+  },
+  async "/api/audit"() { return S.AUDIT.slice(0, 200).map((e) => ({ ...e })); },
+  async "/api/demo/clock"(b) {
+    S.CLOCK.offset_hours += Math.max(0, Number(b.hours) || 0);
+    expireApprovals();
+    return { offset_hours: S.CLOCK.offset_hours, now: S.nowIso() };
+  },
+};
+
+function personaOr404(pid) {
+  const p = personas.find((x) => x.id === pid);
+  if (!p) throw fail(404, "unknown persona");
+  return p;
+}
+
+function protection(pid) {
+  const p = personaOr404(pid), c = S.client(pid);
+  return { persona: pid, balance: p.balance, locked: c.locked, available: S.available(pid, p.balance), passkey: c.passkey,
+    trusted: c.trusted && { ...c.trusted, phone: S.maskPhone(c.trusted.phone) }, index: S.securityIndex(c),
+    index_parts: S.INDEX_POINTS, call: S.SESSIONS[pid] || null };
+}
+
+// routes with an id at the end of the path
+const PREFIX = {
+  "/api/protect/": (pid) => protection(pid),
+  "/api/callstatus/": (pid) => { personaOr404(pid); const st = S.SESSIONS[pid]; return { active: Boolean(st), staff: st ? { ...st } : null }; },
+  "/api/transfer/": (id) => { const tx = TX.get(id); if (!tx) throw fail(404, "not found"); return { ...tx }; },
 };
 
 export function virtualApi(path, body) {
   const route = routes[path];
-  return route ? route(body || {}) : Promise.reject(fail(404, "not found"));
+  if (route) return route(body || {});
+  const prefix = body === undefined && Object.keys(PREFIX).find((p) => path.startsWith(p) && !path.slice(p.length).includes("/"));
+  if (prefix) { try { return Promise.resolve(PREFIX[prefix](decodeURIComponent(path.slice(prefix.length)))); } catch (e) { return Promise.reject(e); } }
+  return Promise.reject(fail(404, "not found"));
 }

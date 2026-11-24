@@ -43,7 +43,7 @@ export default function App() {
       {boot === false && <p className="error">API қолжетімсіз · API недоступен (backend: uvicorn main:app --port 8000)</p>}
       {boot && (tab === "client"
         ? <Client key={epoch} boot={boot} lang={lang} t={t} />
-        : <Analyst key={epoch} lang={lang} t={t} />)}
+        : <Analyst key={epoch} lang={lang} t={t} boot={boot} />)}
     </div>
   );
 }

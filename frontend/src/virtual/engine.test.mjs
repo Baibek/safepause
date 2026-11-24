@@ -1,0 +1,91 @@
+// The browser engine must pass the same Senim Saqshy acceptance scenarios as backend/test_scenarios.py.
+// Run: npm run test:engine (bundles this file with esbuild because the engine imports JSON).
+import { test, beforeEach } from "node:test";
+import assert from "node:assert/strict";
+import { virtualApi as api } from "./engine.js";
+
+const ok = (p, b) => api(p, b);
+const err = async (p, b) => { try { await api(p, b); return null; } catch (e) { return e; } };
+const transfer = (o = {}) => ok("/api/transfer/check", { persona: "aigul", recipient_id: "new_clean", amount: 900000, lang: "kk", signals: {}, ...o });
+async function answerAll(tx) {
+  let r = {};
+  for (let i = 0; i < 6 && !r.final; i++) {
+    const t = await ok(`/api/transfer/${tx}`);
+    r = await ok("/api/dialog/answer", { tx_id: tx, lang: "kk", answer: t.queue[0] === "known" ? "yes" : "no" });
+  }
+  return r;
+}
+beforeEach(() => ok("/api/demo/reset", {}));
+
+test("1: call + new recipient + large amount -> trusted contact refuses -> not sent", async () => {
+  const r = await transfer({ signals: { on_call: true, unknown_caller: true } });
+  assert.ok(r.score >= 80); assert.equal(r.tier, "escalate"); assert.equal(r.action, "dialog");
+  const f = (await answerAll(r.tx_id)).final;
+  assert.equal(f.decision, "awaiting_trusted");
+  const n = (await ok("/api/guardian/notifications")).find((x) => x.tx_id === r.tx_id);
+  assert.ok(n.approval); assert.equal(n.state, "open");
+  await ok("/api/guardian/respond", { id: n.id, action: "stop" });
+  assert.equal((await ok(`/api/transfer/${r.tx_id}`)).status, "cancelled");
+});
+
+test("1b: silent trusted contact for 24 hours means no", async () => {
+  const r = await transfer({ signals: { on_call: true, unknown_caller: true } });
+  await answerAll(r.tx_id);
+  await ok("/api/demo/clock", { hours: 25 });
+  assert.equal((await ok(`/api/transfer/${r.tx_id}`)).status, "cancelled");
+});
+
+test("2: Call Status", async () => {
+  assert.deepEqual(await ok("/api/callstatus/aigul"), { active: false, staff: null });
+  await ok("/api/callstatus/start", { persona: "aigul", staff_id: "BK-2041" });
+  const st = await ok("/api/callstatus/aigul");
+  assert.ok(st.active); assert.equal(st.staff.id, "BK-2041");
+  await ok("/api/callstatus/end", { persona: "aigul" });
+  assert.equal((await ok("/api/callstatus/aigul")).active, false);
+});
+
+test("3: money in the safe cannot be transferred", async () => {
+  const e = await err("/api/transfer/check", { persona: "aigul", recipient_id: "family", amount: 2100000, lang: "kk", signals: {} });
+  assert.equal(e.status, 409); assert.match(e.message, /сейф/);
+  assert.equal((await err("/api/protect/unlock", { persona: "aigul", amount: 400000, channel: "app" })).status, 403);
+  await ok("/api/protect/unlock", { persona: "aigul", amount: 400000, channel: "atm", biometric: true });
+  assert.equal((await ok("/api/protect/aigul")).locked, 0);
+});
+
+test("4: usual transfer to a known recipient passes", async () => {
+  const r = await transfer({ recipient_id: "family", amount: 15000 });
+  assert.equal(r.action, "approve"); assert.equal(r.tier, "pass");
+});
+
+test("5: fake prize message is a scam", async () => {
+  const r = await ok("/api/message/check", { lang: "kk", text: "Kaspi-ден ұтыс! Сіз 500 000 ₸ ұттыңыз, сілтемеге кіріңіз: http://kaspi-bonus.top/prize" });
+  assert.equal(r.verdict, "scam");
+});
+
+test("6: dropper list raises the next transfer", async () => {
+  const before = await transfer({ persona: "daniyar", amount: 20000 });
+  const boot = await ok("/api/bootstrap");
+  const account = boot.recipients.find((x) => x.id === "new_clean").account;
+  await ok("/api/analyst/droplist", { account, reason: "fast cash-out" });
+  const after = await transfer({ persona: "daniyar", amount: 20000 });
+  assert.ok(before.score < 80 && after.score >= 80); assert.equal(after.tier, "escalate");
+});
+
+test("first large transfer to a new recipient waits after confirmation", async () => {
+  const r = await transfer({ persona: "daniyar", amount: 210000 });
+  assert.equal(r.action, "verify");
+  const f = (await ok("/api/verify/respond", { tx_id: r.tx_id, answer: "self", lang: "kk" })).final;
+  assert.equal(f.decision, "delayed"); assert.equal(f.delay_minutes, 30);
+});
+
+test("trusted contact from another bank must consent", async () => {
+  let s = await ok("/api/protect/trusted/invite", { persona: "daniyar", name: "Сәуле Сейітова", phone: "+7 777 123 45 67", other_bank: true });
+  assert.equal(s.trusted.state, "invited"); assert.equal(s.index, 0);
+  s = await ok("/api/protect/trusted/accept", { persona: "daniyar" });
+  assert.equal(s.index, 35);
+});
+
+test("name check", async () => {
+  const m = async (name) => (await ok("/api/recipient/check", { recipient_id: "new_clean", name })).match;
+  assert.deepEqual([await m("Ержан Қасымов"), await m("Ержан"), await m("Асхат Нұров")], ["full", "partial", "mismatch"]);
+});

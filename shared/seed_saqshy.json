@@ -1,0 +1,153 @@
+{
+ "_doc": "Synthetic Senim Saqshy data: protection settings of the two demo clients and 13 background clients, account owners for the name check, and bank staff for Call Status. No real people, cards or accounts.",
+ "clients": {
+  "aigul": {
+   "locked": 400000,
+   "passkey": false,
+   "trusted": {
+    "name": "Данияр Сейітов",
+    "relation": {
+     "kk": "ұлы",
+     "ru": "сын"
+    },
+    "phone": "+7 701 ••• 22 18",
+    "other_bank": false,
+    "state": "active"
+   }
+  },
+  "daniyar": {
+   "locked": 0,
+   "passkey": false,
+   "trusted": null
+  }
+ },
+ "background": [
+  {
+   "id": "c03",
+   "name": "Гүлнар Ахметова",
+   "age": 71,
+   "trusted": true,
+   "locked": 500000,
+   "passkey": true
+  },
+  {
+   "id": "c04",
+   "name": "Сергей Петров",
+   "age": 45,
+   "trusted": false,
+   "locked": 300000,
+   "passkey": true
+  },
+  {
+   "id": "c05",
+   "name": "Айдана Мұратқызы",
+   "age": 24,
+   "trusted": false,
+   "locked": 150000,
+   "passkey": false
+  },
+  {
+   "id": "c06",
+   "name": "Бауыржан Омаров",
+   "age": 63,
+   "trusted": true,
+   "locked": 0,
+   "passkey": true
+  },
+  {
+   "id": "c07",
+   "name": "Ольга Ким",
+   "age": 58,
+   "trusted": false,
+   "locked": 0,
+   "passkey": false
+  },
+  {
+   "id": "c08",
+   "name": "Нұрлан Сәрсенов",
+   "age": 37,
+   "trusted": false,
+   "locked": 300000,
+   "passkey": false
+  },
+  {
+   "id": "c09",
+   "name": "Жанар Бекова",
+   "age": 66,
+   "trusted": false,
+   "locked": 0,
+   "passkey": true
+  },
+  {
+   "id": "c10",
+   "name": "Арман Дүйсенов",
+   "age": 31,
+   "trusted": true,
+   "locked": 0,
+   "passkey": false
+  },
+  {
+   "id": "c11",
+   "name": "Әсел Төлегенова",
+   "age": 52,
+   "trusted": false,
+   "locked": 300000,
+   "passkey": false
+  },
+  {
+   "id": "c12",
+   "name": "Мақсат Жұмабаев",
+   "age": 19,
+   "trusted": false,
+   "locked": 0,
+   "passkey": true
+  },
+  {
+   "id": "c13",
+   "name": "Роза Ибраева",
+   "age": 74,
+   "trusted": true,
+   "locked": 500000,
+   "passkey": false
+  },
+  {
+   "id": "c14",
+   "name": "Тимур Алиев",
+   "age": 41,
+   "trusted": false,
+   "locked": 150000,
+   "passkey": false
+  },
+  {
+   "id": "c15",
+   "name": "Света Ли",
+   "age": 35,
+   "trusted": false,
+   "locked": 0,
+   "passkey": true
+  }
+ ],
+ "owners": {
+  "family": "Мадина Сейітова",
+  "utility": "Алматы Су ЖШС",
+  "new_clean": "Ержан Қасымов",
+  "new_drop": "Нұрлан Бекетов"
+ },
+ "senders_last_hour": {
+  "new_drop": 7
+ },
+ "staff": [
+  {
+   "name": "Әсел Нұрланқызы",
+   "id": "BK-2041"
+  },
+  {
+   "name": "Ринат Ғалымов",
+   "id": "BK-1187"
+  },
+  {
+   "name": "Мария Ким",
+   "id": "BK-3302"
+  }
+ ]
+}

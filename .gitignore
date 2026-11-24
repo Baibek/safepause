@@ -9,3 +9,5 @@ android/local.properties
 android/.kotlin/
 android/dist/
 deliverables/
+frontend/.test-build/
+.env

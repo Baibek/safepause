@@ -1,5 +1,5 @@
-import React from "react";
-import { fmt } from "../i18n.js";
+import React, { useEffect, useState } from "react";
+import { api, fmt } from "../i18n.js";
 import { amountInWords } from "./words.js";
 import { Icon } from "../phone/PhoneFrame.jsx";
 
@@ -28,6 +28,15 @@ export default function TransferSection({ step, setStep, boot, lang, t, P, balan
   const amount = Number(sc.amount) || 0;
   const field = type === "iban" ? rec.account : CONTACT[rec.id]?.[type] || rec.account;
   const words = amount ? amountInWords(amount, lang) : "";
+  // name check for a first transfer to someone new: does the typed name match the account owner?
+  const [nc, setNc] = useState(null);
+  const typed = sc.recipient_name || "";
+  useEffect(() => {
+    setNc(null);
+    if (rec.known || type === "iban" || typed.trim().length < 2) return;
+    const id = setTimeout(() => api("/api/recipient/check", { recipient_id: rec.id, name: typed }).then(setNc).catch(() => {}), 350);
+    return () => clearTimeout(id);
+  }, [rec.id, typed, type]);
 
   if (step !== "form") return (
     <div className="app-screen tr-x">
@@ -70,7 +79,7 @@ export default function TransferSection({ step, setStep, boot, lang, t, P, balan
       {type !== "iban" && (
         <div className="chips-x">
           {known.map((r) => (
-            <button key={r.id} className={r.id === rec.id ? "on" : ""} onClick={() => set({ recipient: r.id })}>
+            <button key={r.id} className={r.id === rec.id ? "on" : ""} onClick={() => set({ recipient: r.id, recipient_name: "" })}>
               <i className={r.known ? "" : "new"}>{CONTACT[r.id]?.initials}</i>{shortName(r, lang)}
             </button>
           ))}
@@ -81,6 +90,18 @@ export default function TransferSection({ step, setStep, boot, lang, t, P, balan
         <div><b>{field}</b><small className={rec.known ? "ok" : "new"}>{rec.known ? `✓ ${rec.name[lang]}` : t.trNewRecipient}</small></div>
         {type !== "iban" && <span className={"bank-chip" + (CONTACT[rec.id]?.otherBank ? " other" : "")}>{CONTACT[rec.id]?.otherBank ? P.verify.otherBank : P.verify.sameBank}</span>}
       </div>
+
+      {!rec.known && type !== "iban" && (
+        <>
+          <label className="field-label" htmlFor="rec-name">{P.nameCheck.label}</label>
+          <input id="rec-name" className="field-x" value={typed} autoComplete="off" placeholder={P.nameCheck.hint}
+            onChange={(e) => set({ recipient_name: e.target.value.slice(0, 60) })} />
+          {nc && (nc.drop_list
+            ? <p className="nc bad" role="alert">{P.nameCheck.drop}</p>
+            : nc.match && <p className={"nc " + { full: "ok", partial: "warn", mismatch: "bad" }[nc.match]} role="status">
+                {nc.match === "full" ? P.nameCheck.full : P.nameCheck[nc.match](nc.owner_masked)}</p>)}
+        </>
+      )}
 
       <label className="field-label" htmlFor="amt">{t.trAmount}</label>
       <div className="amount-x">

@@ -9,8 +9,8 @@ import main  # noqa: E402
 client = TestClient(main.app)
 
 
-def check(recipient="family", amount=150000, other_bank=False, **signals):
-    return client.post("/api/transfer/check", json={"persona": "aigul", "recipient_id": recipient, "amount": amount,
+def check(recipient="family", amount=150000, other_bank=False, persona="aigul", **signals):
+    return client.post("/api/transfer/check", json={"persona": persona, "recipient_id": recipient, "amount": amount,
                                                     "lang": "kk", "other_bank": other_bank, "signals": signals}).json()
 
 
@@ -30,7 +30,8 @@ def test_unusual_amount_triggers_the_call_with_the_notice():
 
 
 def test_other_bank_triggers_the_call():
-    r = check(recipient="new_clean", amount=60000, other_bank=True)
+    # Daniyar usually sends 35 000, so 60 000 is not unusual for him: the other bank alone asks for the call
+    r = check(recipient="new_clean", amount=60000, other_bank=True, persona="daniyar")
     assert r["action"] == "verify"
     assert any("басқа банк" in x["kk"] for x in r["verify"]["reasons"])
 

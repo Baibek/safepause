@@ -14,6 +14,18 @@ export function tellingFactors(factors = []) {
     .sort((a, b) => (first.indexOf(a.key) + 99) % 99 - (first.indexOf(b.key) + 99) % 99);
 }
 
+/** The policy's signals (with their points) when the server sent them, else the model's telling factors. */
+function signalItems(check, lang, limit = 4) {
+  if (check.signals?.length) return check.signals.slice(0, limit).map((x) => ({ key: x.key, text: x[lang], points: x.points, hot: x.points >= 30 }));
+  return tellingFactors(check.factors).slice(0, limit).map((f) => ({ key: f.key, text: f[lang], hot: f.key === "scam_call" || f.contribution > 1.5 }));
+}
+const SignalList = ({ items, solid }) => (
+  <ul className={"signals" + (solid ? " solid" : "")}>
+    {items.map((x, i) => <li key={x.key} style={{ "--i": i }}><span className={"dot " + (x.hot ? "high" : "medium")} />
+      <span className="sig-text">{x.text}</span>{x.points != null && <b className="sig-pts">+{x.points}</b>}</li>)}
+  </ul>
+);
+
 function TxRow({ tx, P }) {
   return (
     <li className="tx-row">
@@ -44,7 +56,7 @@ export function HomeScreen({ persona, balance, P, t, history, scamCallMinutes, o
         <small>{P.card}</small>
       </section>
       <div className="quick">
-        {[["send", "transfer"], ["message", "messages"], ["clock", "history"], ["guardian", "guardian"]].map(([icon, to], i) => (
+        {[["send", "transfer"], ["message", "messages"], ["clock", "history"], ["shield", "protect"]].map(([icon, to], i) => (
           <button key={to} onClick={() => go(to)}><span><Icon name={icon} /></span>{Object.values(P.actions)[i]}</button>
         ))}
       </div>
@@ -68,7 +80,7 @@ export function HomeScreen({ persona, balance, P, t, history, scamCallMinutes, o
 }
 
 /** Animated check: steps tick while the request runs, then the score counts up and the signals arrive one by one. */
-export function AnalysisScreen({ check, P, lang, amount, onLow, onRisk, onVerify }) {
+export function AnalysisScreen({ check, P, lang, amount, onLow, onRisk, onVerify, onCooling }) {
   const [step, setStep] = useState(0);
   const [shown, setShown] = useState(0);
   useEffect(() => {
@@ -92,7 +104,7 @@ export function AnalysisScreen({ check, P, lang, amount, onLow, onRisk, onVerify
   }, [check]);
   const level = check?.level || "low";
   const R = 64, C = 2 * Math.PI * R;
-  const signals = check ? tellingFactors(check.factors).slice(0, 4) : [];
+  const signals = check ? signalItems(check, lang) : [];
   return (
     <div className="app-screen analysis">
       <p className="an-amount">{fmt(amount)} ₸</p>
@@ -112,7 +124,14 @@ export function AnalysisScreen({ check, P, lang, amount, onLow, onRisk, onVerify
         </ul>
       ) : (
         <>
-          {check.action === "verify" ? (
+          {check.action === "cooling" ? (
+            <section className="vf-note">
+              <span className="vf-note-ic"><Icon name="clock" size={22} stroke={2} /></span>
+              <b>{P.cooling.title}</b>
+              <small>{check.message}</small>
+              <ul><li>{check.cooling.text[lang]}</li></ul>
+            </section>
+          ) : check.action === "verify" ? (
             <section className="vf-note">
               <span className="vf-note-ic"><Icon name="phone" size={22} stroke={2} /></span>
               <b>{P.verify.title}</b>
@@ -120,13 +139,11 @@ export function AnalysisScreen({ check, P, lang, amount, onLow, onRisk, onVerify
               <ul>{check.verify.reasons.map((r, i) => <li key={i}>{r[lang]}</li>)}</ul>
             </section>
           ) : <h3 className="an-title">{level === "low" ? P.lowText : P.why}</h3>}
-          {level !== "low" && check.action !== "verify" && (
-            <ul className="signals">
-              {signals.map((f, i) => <li key={f.key} style={{ "--i": i }}><span className={"dot " + (f.key === "scam_call" || f.contribution > 1.5 ? "high" : "medium")} />{f[lang]}</li>)}
-            </ul>
-          )}
+          {level !== "low" && check.action !== "verify" && check.action !== "cooling" && <SignalList items={signals} />}
           <div className="cta-stack">
-            {check.action === "verify"
+            {check.action === "cooling"
+              ? <button className="btn primary-blue" onClick={onCooling}>{P.cooling.ok}</button>
+              : check.action === "verify"
               ? <button className="btn primary-blue" onClick={onVerify}>{P.verify.start}</button>
               : level === "low"
               ? <button className="btn primary-blue" onClick={onLow}>{P.sendNow}</button>
@@ -140,7 +157,7 @@ export function AnalysisScreen({ check, P, lang, amount, onLow, onRisk, onVerify
 
 export function WarningScreen({ check, P, lang, busy, onCancel, onDelay, onProceed }) {
   const minutes = check.level === "high" ? 60 : 30;
-  const signals = tellingFactors(check.factors).slice(0, 4);
+  const signals = signalItems(check, lang);
   return (
     <div className="app-screen warning">
       <div className="warn-hero">
@@ -149,9 +166,7 @@ export function WarningScreen({ check, P, lang, busy, onCancel, onDelay, onProce
         <p>{check.message}</p>
       </div>
       <h3 className="sec-title">{P.warnSeen}</h3>
-      <ul className="signals solid">
-        {signals.map((f) => <li key={f.key}><span className={"dot " + (f.key === "scam_call" || f.contribution > 1.5 ? "high" : "medium")} />{f[lang]}</li>)}
-      </ul>
+      <SignalList items={signals} solid />
       <div className="cta-stack">
         <button className="btn primary-blue" disabled={busy} onClick={onCancel}>{P.cancel}</button>
         <button className="btn outline" disabled={busy} onClick={() => onDelay(minutes)}>{P.wait(minutes)}</button>
@@ -197,7 +212,7 @@ export function DialogScreen({ P, t, amount, chat, busy, final, onAnswer, onResu
 
 export function ResultScreen({ final, P, t, recipientName, amount, check, note, onHome, onGuardian }) {
   const d = final.decision;
-  const icon = { approved: "check", delayed: "pause", cancelled: "close" }[d];
+  const icon = { approved: "check", delayed: "pause", cancelled: "close", awaiting_trusted: "guardian", awaiting_analyst: "shield" }[d];
   const rows = [
     [P.details.to, recipientName], [P.details.amount, `${fmt(amount)} ₸`], [P.details.when, new Date().toTimeString().slice(0, 5)],
     ...(check ? [[P.details.risk, `${Math.round(check.risk * 100)} · ${P.level[check.level]}`], [P.details.id, check.tx_id]] : []),
@@ -207,6 +222,7 @@ export function ResultScreen({ final, P, t, recipientName, amount, check, note, 
       <span className="res-ic"><Icon name={icon} size={40} stroke={2.4} /></span>
       <h2>{P.resultTitle[d]}</h2>
       <p className="res-sub">{final.message || (d === "delayed" ? P.resultSub.delayed(final.delay_minutes) : P.resultSub[d])}</p>
+      {final.trusted && <span className="pill warn vf-ok"><Icon name="guardian" size={14} stroke={2.4} />{final.trusted}</span>}
       {final.verified && <span className="pill ok vf-ok"><Icon name="check" size={14} stroke={2.6} />{P.verify.verified}</span>}
       <dl className="details">{rows.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
       {final.guardian_notified && (
@@ -221,9 +237,9 @@ export function ResultScreen({ final, P, t, recipientName, amount, check, note, 
   );
 }
 
-export function GuardianScreen({ persona, notes, P, t, lang, onRespond }) {
+export function GuardianScreen({ persona, notes, P, t, lang, onRespond, trusted }) {
   const mine = notes.filter((n) => n.client === persona.name);
-  const g = persona.guardian;
+  const g = trusted ? (trusted.state === "active" ? { name: trusted.name.split(" ")[0], relation: trusted.relation } : null) : persona.guardian;
   return (
     <div className="app-screen guardian-x">
       <h1 className="large-title">{P.guardianTitle}</h1>
@@ -238,9 +254,10 @@ export function GuardianScreen({ persona, notes, P, t, lang, onRespond }) {
             <div key={n.id} className="g-note">
               <div className="notif">
                 <span className="notif-app"><Icon name="pause" size={14} stroke={2.6} /></span>
-                <div><small>Senim · {hhmm(n.time)}</small><p>{t.gText(n)}</p></div>
+                <div><small>Senim · {hhmm(n.time)}{n.channel === "sms" ? " · SMS" : ""}</small><p>{t.gText(n)}</p>
+                  {n.approval && n.state === "open" && <small className="g-deadline">{P.protect.deadline(24)}</small>}</div>
               </div>
-              <span className={"pill " + ({ open: "warn", confirmed: "ok", stopped: "bad", info: "bad" }[n.state])}>{t.gState[n.state]}</span>
+              <span className={"pill " + ({ open: "warn", confirmed: "ok", stopped: "bad", info: "bad", expired: "bad", closed: "bad" }[n.state])}>{t.gState[n.state] || P.status[n.status]}</span>
               {n.state === "open" && (
                 <>
                   <small className="hint-c">{P.guardianDemo}</small>

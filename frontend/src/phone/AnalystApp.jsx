@@ -55,6 +55,19 @@ function Overview({ dash, t, A, onOpen }) {
         <div><dt>{A.falsePause}</dt><dd>{(m.false_pause_share * 100).toFixed(2)}%</dd></div>
       </dl>
       <p className="an-note">{A.modelNote}</p>
+
+      {dash.adoption && (
+        <>
+          <h2 className="an-h">{A.saqshy}</h2>
+          <dl className="an-model four">
+            <div><dt>{A.awaiting}</dt><dd>{s.awaiting ?? 0}</dd></div>
+            <div><dt>{A.falsePos}</dt><dd>{pct(s.false_positive_share || 0)}%</dd></div>
+            <div><dt>{A.adoptTrusted}</dt><dd>{pct(dash.adoption.trusted)}%</dd></div>
+            <div><dt>{A.adoptLocked}</dt><dd>{pct(dash.adoption.locked)}%</dd></div>
+          </dl>
+          <p className="an-note">{A.ofClients(dash.adoption.clients)} · {A.adoptPasskey}: {pct(dash.adoption.passkey)}%</p>
+        </>
+      )}
     </div>
   );
 }
@@ -76,7 +89,9 @@ function Queue({ dash, t, A, filter, setFilter, onOpen }) {
   );
 }
 
-function Detail({ tx, lang, t, A, onBack }) {
+const DECIDABLE = ["awaiting_analyst", "awaiting_trusted", "in_dialog", "delayed", "verifying"];
+
+function Detail({ tx, lang, t, A, onBack, onDecide, onDrop, dropList, notice }) {
   const up = tx.factors.filter((f) => f.contribution > 0);
   const down = tx.factors.filter((f) => f.contribution < 0);
   const max = Math.max(...tx.factors.map((f) => Math.abs(f.contribution)), 0.01);
@@ -105,6 +120,22 @@ function Detail({ tx, lang, t, A, onBack }) {
       </div>
       {tx.scam_call && <p className="an-flag">{A.afterCall}</p>}
       {tx.guardian && <p className="an-flag soft">{A.guardian(tx.guardian.name)}</p>}
+      {tx.signals?.length > 0 && (
+        <>
+          <h2 className="an-h">{A.signalsTitle}</h2>
+          <ul className="an-signals">{tx.signals.map((x) => <li key={x.key}><span>{x[lang]}</span><b>+{x.points}</b></li>)}</ul>
+        </>
+      )}
+      {DECIDABLE.includes(tx.status) && tx.live && (
+        <div className="an-actions">
+          {["approve", "reject", "to_trusted"].map((a) => <button key={a} className={"an-act " + a} onClick={() => onDecide(tx.id, a)}>{A.decide[a]}</button>)}
+        </div>
+      )}
+      {notice && <p className="an-note" role="status">{notice}</p>}
+      {dropList.includes(tx.recipient)
+        ? <p className="an-flag">{A.onDrop}: {tx.recipient}</p>
+        : <button className="an-drop" onClick={() => onDrop(tx.recipient)}>{A.addDrop}: {tx.recipient}</button>}
+      {(up.length > 0 || down.length > 0) && tx.signals?.length > 0 && <h2 className="an-h">{A.modelTitle}</h2>}
       {up.length > 0 && <><h2 className="an-h">{A.why}</h2><Bars list={up} dir="up" /></>}
       {down.length > 0 && <><h2 className="an-h">{A.lowers}</h2><Bars list={down} dir="down" /></>}
       <h2 className="an-h">{A.dialog}</h2>
@@ -146,7 +177,7 @@ function NetMap({ graph, showAll, onPick }) {
   return <div className="an-map" ref={el} />;
 }
 
-function Network_({ graph, t, A }) {
+function Network_({ graph, t, A, onDrop, dropList }) {
   const [showAll, setShowAll] = useState(false);
   const [node, setNode] = useState(null);
   if (!graph) return null;
@@ -182,21 +213,42 @@ function Network_({ graph, t, A }) {
             <div><dt>{t.ageDays}</dt><dd>{node.age_days}</dd></div>
             <div><dt>{t.fanIn}</dt><dd>{node.fan_in}</dd></div>
           </dl>
+          {dropList.includes(node.id)
+            ? <p className="an-sheet-note">{A.onDrop}</p>
+            : <button className="btn danger an-sheet-btn" onClick={() => onDrop(node.id)}>{A.addDrop}</button>}
         </div>
       )}
     </div>
   );
 }
 
+function Audit({ audit, A }) {
+  return (
+    <div className="an-screen">
+      <h1 className="an-title">{A.tabs.audit}</h1>
+      {audit.length ? (
+        <ul className="an-audit">
+          {audit.map((e, i) => (
+            <li key={i}><small>{e.time.slice(11, 16)} · {A.role[e.role] || e.role}</small>
+              <b>{e.actor}: {A.act[e.action] || e.action}</b><span>{e.target}{e.reason ? ` · ${e.reason}` : ""}</span></li>
+          ))}
+        </ul>
+      ) : <p className="an-empty">{A.auditEmpty}</p>}
+    </div>
+  );
+}
+
 /** The analyst's phone: overview, the live queue with each decision explained, and the drop-network map. */
-export default function AnalystApp({ tab, dash, graph, lang, t, A }) {
+export default function AnalystApp({ tab, dash, graph, lang, t, A, audit = [], onDecide, onDrop, notice }) {
   const [open, setOpen] = useState(null);
   const [filter, setFilter] = useState("all");
   useEffect(() => setOpen(null), [tab]);
   const tx = useMemo(() => dash?.transactions.find((x) => x.id === open), [dash, open]);
   if (!dash) return null;
-  if (tx) return <Detail tx={tx} lang={lang} t={t} A={A} onBack={() => setOpen(null)} />;
+  const dropList = (dash?.drop_list || []).map((d) => d.account);
+  if (tx) return <Detail tx={tx} lang={lang} t={t} A={A} onBack={() => setOpen(null)} onDecide={onDecide} onDrop={onDrop} dropList={dropList} notice={notice} />;
+  if (tab === "audit") return <Audit audit={audit} A={A} />;
   if (tab === "queue") return <Queue dash={dash} t={t} A={A} filter={filter} setFilter={setFilter} onOpen={setOpen} />;
-  if (tab === "network") return <Network_ graph={graph} t={t} A={A} />;
+  if (tab === "network") return <Network_ graph={graph} t={t} A={A} onDrop={onDrop} dropList={dropList} />;
   return <Overview dash={dash} t={t} A={A} onOpen={setOpen} />;
 }

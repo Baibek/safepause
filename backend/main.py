@@ -2,6 +2,7 @@
 import json
 import math
 import random
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -16,6 +17,8 @@ from pydantic import BaseModel
 
 import graph as graph_mod
 import llm
+import policy
+import saqshy
 from features import FEATURES, build_features
 
 HERE = Path(__file__).parent
@@ -146,7 +149,9 @@ def factors_for(feats, contrib, limit=6):
 
 
 def level_of(risk):
-    return "high" if risk >= HIGH_AT else "medium" if risk >= PAUSE_AT else "low"
+    """low / medium / high on the policy's 0-100 scale: below warn, below cool, cool and above."""
+    t = policy.POLICY["thresholds"]
+    return "high" if risk * 100 >= t["cool"] else "medium" if risk * 100 >= t["warn"] else "low"
 
 
 def now_iso(offset_min=0):
@@ -191,6 +196,10 @@ class Signals(BaseModel):
     session_seconds: float = 45
     # minutes since Senim Call Guard on this phone flagged a call as fraud (None = no such call)
     scam_call_minutes: Optional[float] = None
+    new_device: bool = False
+    vpn: bool = False
+    rooted: bool = False
+    loan_minutes_ago: Optional[float] = None   # an online loan was taken this many minutes ago
 
 
 class CheckIn(BaseModel):
@@ -200,6 +209,11 @@ class CheckIn(BaseModel):
     signals: Signals = Signals()
     lang: str = "kk"
     other_bank: bool = False      # the recipient's account is in another bank
+    recipient_name: Optional[str] = None   # the name the client typed, for the name check
+
+
+_ST = json.loads((HERE.parent / "shared" / "saqshy_texts.json").read_text(encoding="utf-8"))
+TXT, COOLING_REASON = _ST["messages"], _ST["cooling_reason"]
 
 
 class VerifyIn(BaseModel):
@@ -237,23 +251,42 @@ def next_question(tx, lang):
     return {"key": tx["queue"][0], "text": q[lang]}
 
 
-def notify_guardian(tx, persona):
-    g = persona["guardian"]
-    if not g or tx["amount"] < GUARDIAN_MIN_AMOUNT or tx["guardian"]:
+def notify_guardian(tx, persona, approval=False):
+    """Tells the client's trusted contact. approval=True: the transfer waits for their decision (score 80+)."""
+    g = saqshy.trusted_active(persona["id"])
+    if not g or tx["guardian"] or (tx["amount"] < GUARDIAN_MIN_AMOUNT and not approval):
         return None
-    n = {"id": uuid.uuid4().hex[:8], "tx_id": tx["id"], "time": now_iso(), "guardian": g["name"],
+    open_ = approval or tx["status"] == "delayed"
+    n = {"id": uuid.uuid4().hex[:8], "tx_id": tx["id"], "time": saqshy.now_iso(), "guardian": g["name"],
          "client": persona["name"], "amount": tx["amount"], "recipient": tx["recipient"],
-         "status": tx["status"], "risk": tx["risk"], "state": "open" if tx["status"] == "delayed" else "info"}
+         "status": tx["status"], "risk": tx["risk"], "state": "open" if open_ else "info", "approval": approval,
+         "channel": "sms" if g.get("other_bank") else "app"}
+    if approval:
+        n["deadline"] = (saqshy.now() + timedelta(hours=policy.POLICY["trusted_timeout_hours"])).isoformat(timespec="seconds")
     NOTIFICATIONS.insert(0, n)
-    tx["guardian"] = {"name": g["name"], "state": n["state"]}
+    tx["guardian"] = {"name": g["name"], "state": n["state"], "relation": g["relation"]}
+    saqshy.audit("Senim", "system", "trusted_notified" if not approval else "trusted_asked", tx["id"],
+                 f"{g['name']} ({n['channel']})")
     return g
+
+
+def expire_approvals():
+    """A trusted contact who does not answer within the timeout means no: the transfer is not sent."""
+    t = saqshy.now()
+    for n in NOTIFICATIONS:
+        if n.get("approval") and n["state"] == "open" and datetime.fromisoformat(n["deadline"]) <= t:
+            tx = TX[n["tx_id"]]
+            n["state"] = tx["guardian"]["state"] = "expired"
+            tx["status"] = n["status"] = "cancelled"
+            tx["transcript"].append({"from": "bot", "text": TXT["expired"][tx.get("lang", "kk")]})
+            saqshy.audit("Senim", "system", "rejected", tx["id"], "trusted contact did not answer in time")
 
 
 def finish(tx, decision, lang):
     persona = PERSONAS[tx["persona"]]
     tx["status"] = decision
     if decision == "delayed":
-        tx["delay_minutes"] = 60 if tx["level"] == "high" else 30
+        tx["delay_minutes"] = (tx.get("cooling") or {}).get("minutes") or (60 if tx["level"] == "high" else 30)
     g = notify_guardian(tx, persona) if decision != "approved" else None
     msg = llm.final_message(lang, decision, tx["amount"], tx["recipient"], tx["risky"], g["name"] if g else None)
     if not msg:
@@ -268,7 +301,7 @@ def finish(tx, decision, lang):
 @app.get("/api/bootstrap")
 def bootstrap():
     return {"personas": list(PERSONAS.values()), "recipients": RECIPIENTS, "llm": llm.enabled(),
-            "samples": MSG["samples"],
+            "samples": MSG["samples"], "staff": saqshy.SEED["staff"],
             "thresholds": {"pause": PAUSE_AT, "high": HIGH_AT}}
 
 
@@ -281,13 +314,17 @@ def check(body: CheckIn):
     if body.amount <= 0 or body.amount > persona["balance"]:
         raise HTTPException(400, "amount must be positive and within the balance")
     lang = body.lang if body.lang in ("kk", "ru") else "kk"
+    free = saqshy.available(persona["id"], persona["balance"])
+    if body.amount > free:                                    # money in the safe cannot leave digitally
+        saqshy.audit(persona["name"], "client", "blocked_locked", rec["account"], f"{body.amount:.0f} > {free:.0f}")
+        raise HTTPException(409, TXT["locked"][lang].format(a=f"{free:,.0f}".replace(",", " ")))
     s = body.signals
     hour = s.hour if s.hour is not None else datetime.now(ALMATY).hour
     drop = DROP.get(rec["account"])
     feats = build_features(body.amount, persona["avg_amount"], persona["balance"], not rec["known"], hour,
                            s.on_call, s.unknown_caller, s.remote_app, s.session_seconds, persona["age"],
                            rec["age_days"], drop["score"] if drop else 0.05, 1)
-    risk, contrib = score(feats)
+    model_risk, contrib = score(feats)
     tid = f"TX-{uuid.uuid4().hex[:6].upper()}"
     factors = factors_for(feats, contrib)
     scam_call = s.scam_call_minutes is not None and 0 <= s.scam_call_minutes <= SCAM_CALL_WINDOW_MIN
@@ -298,46 +335,61 @@ def check(body: CheckIn):
                            "kk": ("Жаңа ғана" if m < 1 else f"{m} минут бұрын") + " телефоныңызда алаяқтық белгілері бар қоңырау анықталды",
                            "ru": ("Только что" if m < 1 else f"{m} мин назад") + " на вашем телефоне распознан звонок с признаками мошенничества",
                            "en": f"Senim flagged a scam phone call on this device {m} minutes ago"})
-        risk = max(risk, 0.95)
+    names = saqshy.name_check(rec["id"], body.recipient_name) if body.recipient_name and not rec["known"] else None
+    pol = policy.evaluate({
+        "amount": body.amount, "amount_ratio": body.amount / max(persona["avg_amount"], 1.0), "hour": hour,
+        "model_risk": model_risk, "new_recipient": not rec["known"], "other_bank": body.other_bank,
+        "new_device": s.new_device, "on_call": s.on_call, "unknown_caller": s.unknown_caller,
+        "scam_call_minutes": s.scam_call_minutes, "remote_access": s.remote_app, "rooted": s.rooted, "vpn": s.vpn,
+        "drop_list": rec["account"] in saqshy.DROP_LIST,
+        "senders_last_hour": saqshy.SEED["senders_last_hour"].get(rec["id"], 0),
+        "loan_minutes_ago": s.loan_minutes_ago, "name_match": names["match"] if names else None})
+    risk = pol["score"] / 100
     lvl = level_of(risk)
-    tx = {"id": tid, "time": now_iso(), "client": persona["name"], "age": persona["age"], "persona": persona["id"],
-          "recipient": rec["account"], "amount": body.amount, "risk": round(risk, 3), "level": lvl,
-          "status": "approved", "paused": lvl != "low", "factors": factors, "transcript": [], "guardian": None,
-          "live": True, "risky": [], "drop_network": drop["network"] if drop else None, "scam_call": scam_call}
+    tier = pol["tier"]
+    tx = {"id": tid, "time": saqshy.now_iso(), "client": persona["name"], "age": persona["age"], "persona": persona["id"],
+          "recipient": rec["account"], "amount": body.amount, "risk": round(risk, 3), "model_risk": round(model_risk, 3),
+          "level": lvl, "tier": tier, "signals": pol["signals"], "status": "approved", "paused": tier != "pass" or bool(pol["cooling"]),
+          "factors": factors, "transcript": [], "guardian": None, "live": True, "risky": [], "lang": lang,
+          "drop_network": drop["network"] if drop else None, "scam_call": scam_call, "cooling": pol["cooling"]}
     TX[tid] = tx
-    resp = {"tx_id": tid, "risk": tx["risk"], "level": lvl, "factors": factors, "action": "approve"}
-    ratio = body.amount / max(persona["avg_amount"], 1.0)
-    reasons = (["unusual"] if ratio >= VERIFY_RATIO else []) + \
-              (["other_bank"] if body.other_bank and body.amount >= VERIFY_OTHER_BANK_MIN else []) + \
-              (["suspicious"] if lvl == "medium" else [])
-    if lvl != "high" and reasons:
-        tx.update(status="verifying", paused=True, verify=reasons)
+    saqshy.audit("Senim", "system", tier, tid, ", ".join(f"{x['key']}+{x['points']}" for x in pol["signals"]) or "no signals")
+    resp = {"tx_id": tid, "risk": tx["risk"], "score": pol["score"], "tier": tier, "signals": pol["signals"],
+            "level": lvl, "factors": factors, "action": "approve", "name_check": names}
+
+    if tier == "pass":
+        if pol["cooling"]:                                    # e.g. the first large transfer to a new recipient
+            m = pol["cooling"]["minutes"]
+            tx.update(status="delayed", delay_minutes=m)
+            msg = TXT["cooling"][lang].format(m=m)
+            tx["transcript"].append({"from": "bot", "text": msg})
+            resp.update(action="cooling", message=msg, cooling=pol["cooling"] | {"text": COOLING_REASON[pol["cooling"]["reason"]]})
+        return resp
+
+    # warn without a live call or remote control: the bank's verification call ("press 1 if it is you")
+    if tier == "warn" and not (s.on_call or s.remote_app or scam_call):
+        tx.update(status="verifying", verify=[x["key"] for x in pol["signals"]])
         tx["transcript"] += [{"from": "bot", "text": line} for line in VERIFY_SCRIPT[lang]]
         resp.update(action="verify", verify={
-            "reasons": [{k: v.format(r=ratio) for k, v in VERIFY_REASONS[r].items()} for r in reasons],
-            "script": VERIFY_SCRIPT[lang]})
-        return resp
-    if lvl == "low":
+            "reasons": [{"kk": x["kk"], "ru": x["ru"]} for x in pol["signals"]], "script": VERIFY_SCRIPT[lang]})
         return resp
 
     queue = []
-    if s.on_call or lvl == "high" or scam_call:
+    if s.on_call or tier in ("cool", "escalate") or scam_call:
         queue.append("call")
     if s.remote_app:
         queue.append("remote")
-    if lvl == "high":
+    if tier in ("cool", "escalate"):
         queue.append("safe")
     if not rec["known"]:
         queue.append("known")
     tx["queue"] = queue or ["call"]
     tx["status"] = "in_dialog"
     # for the client message, lead with the signals a person can verify themselves
-    client_first = ["scam_call", "on_call", "unknown_caller", "remote_app", "recipient_drop_score", "new_recipient", "amount_ratio"]
-    positive = sorted((f for f in factors if f["contribution"] > 0 and not (f["key"] == "amount_ratio" and f["value"] < 1.5)),
-                      key=lambda f: client_first.index(f["key"]) if f["key"] in client_first else 99)[:3]
-    msg = llm.opening_message(lang, body.amount, rec["account"], [f["en"] for f in positive])
+    lead = [x for x in pol["signals"] if x["key"] != "model"][:2] or pol["signals"][:1]
+    msg = llm.opening_message(lang, body.amount, rec["account"], [x[lang] for x in lead])
     if not msg:
-        reasons = "; ".join(f[lang][0].lower() + f[lang][1:] for f in positive[:2])
+        reasons = "; ".join(x[lang][0].lower() + x[lang][1:] for x in lead)
         msg = T["opening"][lang].format(r=reasons)
     tx["transcript"].append({"from": "bot", "text": msg})
     q = next_question(tx, lang)
@@ -377,11 +429,28 @@ def answer(body: AnswerIn):
         nq = next_question(tx, lang)
         tx["transcript"].append({"from": "bot", "text": nq["text"]})
         return {"question": nq}
-    # all questions answered. Victims are often coached to answer "correctly",
-    # so a high model risk still earns a cooling-off period instead of an instant transfer.
+    # all questions answered. Victims are often coached to answer "correctly", so the policy still decides:
+    # 80+ waits for the trusted contact (or an analyst), 60-80 gets a cooling-off period.
+    if tx.get("tier") == "escalate":
+        return escalate(tx, lang)
     if tx["risky"] or tx["level"] == "high":
         return finish(tx, "delayed", lang)
     return finish(tx, "approved", lang)
+
+
+def escalate(tx, lang):
+    persona = PERSONAS[tx["persona"]]
+    g = saqshy.trusted_active(persona["id"])
+    tx["status"] = "awaiting_trusted" if g else "awaiting_analyst"
+    if g:
+        notify_guardian(tx, persona, approval=True)
+        msg = TXT["awaiting_trusted"][lang].format(n=g["name"], h=policy.POLICY["trusted_timeout_hours"])
+    else:
+        msg = TXT["awaiting_analyst"][lang]
+    tx["transcript"].append({"from": "bot", "text": msg})
+    saqshy.audit("Senim", "system", tx["status"], tx["id"], "score 80+ after the dialog")
+    return {"message": msg, "final": {"decision": tx["status"], "guardian_notified": bool(g),
+                                      "trusted": g["name"] if g else None}}
 
 
 @app.post("/api/verify/respond")
@@ -396,12 +465,18 @@ def verify_respond(body: VerifyIn):
                "not_me": {"kk": "2 — мен жасаған жоқпын", "ru": "2 — это не я"},
                "no_answer": {"kk": "Қоңырауға жауап берілмеді", "ru": "Звонок без ответа"}}[body.answer][lang]
     tx["transcript"].append({"from": "client", "text": pressed})
+    saqshy.audit(tx["client"], "client", "verify_" + body.answer, tx["id"], "bank verification call")
     decision = {"self": "approved", "not_me": "cancelled", "no_answer": "delayed"}[body.answer]
+    cooling = tx.get("cooling")
+    if decision == "approved" and cooling:          # confirmed, but a new recipient / fresh loan still waits
+        decision = "delayed"
     tx["status"] = decision
     if decision == "delayed":
-        tx["delay_minutes"] = 60
+        tx["delay_minutes"] = cooling["minutes"] if cooling and body.answer == "self" else 60
     g = notify_guardian(tx, PERSONAS[tx["persona"]]) if decision != "approved" else None
     msg = VERIFY_DONE[body.answer][lang]
+    if body.answer == "self" and cooling:
+        msg = TXT["cooling"][lang].format(m=cooling["minutes"])
     tx["transcript"].append({"from": "bot", "text": msg})
     return {"message": msg, "final": {"decision": decision, "delay_minutes": tx.get("delay_minutes"),
                                       "guardian_notified": bool(g), "verified": body.answer == "self"}}
@@ -427,6 +502,7 @@ def message_check(body: MessageIn):
 
 @app.get("/api/guardian/notifications")
 def guardian_notifications():
+    expire_approvals()
     return NOTIFICATIONS
 
 
@@ -439,6 +515,8 @@ def guardian_respond(body: GuardianIn):
     tx["status"] = "approved" if body.action == "confirm" else "cancelled"
     n["state"] = tx["guardian"]["state"] = "confirmed" if body.action == "confirm" else "stopped"
     n["status"] = tx["status"]
+    saqshy.audit(n["guardian"], "trusted", "approved" if body.action == "confirm" else "rejected", tx["id"],
+                 "trusted contact decision")
     return n
 
 
@@ -451,15 +529,22 @@ def transfer(tx_id: str):
 
 @app.get("/api/dashboard")
 def dashboard():
+    expire_approvals()
     txs = sorted(TX.values(), key=lambda t: t["time"], reverse=True)
     paused = [t for t in txs if t["paused"]]
+    held = ("cancelled", "delayed", "awaiting_trusted", "awaiting_analyst")
+    done = [t for t in paused if t["status"] in ("approved", "cancelled")]
     return {
         "summary": {
             "checked": len(txs), "paused": len(paused),
             "cancelled": sum(t["status"] == "cancelled" for t in txs),
             "delayed": sum(t["status"] == "delayed" for t in txs),
-            "protected_amount": sum(t["amount"] for t in txs if t["status"] in ("cancelled", "delayed")),
+            "awaiting": sum(t["status"] in ("awaiting_trusted", "awaiting_analyst") for t in txs),
+            "protected_amount": sum(t["amount"] for t in txs if t["status"] in held),
+            # paused, then let through after checking: the friction honest clients paid
+            "false_positive_share": round(sum(t["status"] == "approved" for t in done) / len(done), 3) if done else 0,
         },
+        "adoption": saqshy.adoption(), "drop_list": list(saqshy.DROP_LIST.values()),
         "transactions": txs, "metrics": METRICS, "graph_quality": GRAPH["quality"], "llm": llm.enabled(),
     }
 
@@ -471,9 +556,229 @@ def graph():
 
 @app.post("/api/demo/reset")
 def reset():
+    saqshy.reset()
+    sync_guardians()
     seed()
     return {"ok": True}
 
+
+# ---------------------------------------------------------------- Senim Saqshy: client protection
+class PersonaIn(BaseModel):
+    persona: str
+
+
+class TrustedIn(BaseModel):
+    persona: str
+    name: str
+    phone: str
+    relation_kk: str = "туысы"
+    relation_ru: str = "родственник"
+    other_bank: bool = False      # the trusted contact banks elsewhere: the request goes by SMS / eGov
+
+
+class LockIn(BaseModel):
+    persona: str
+    amount: float
+
+
+class UnlockIn(BaseModel):
+    persona: str
+    amount: float
+    channel: str                  # atm | branch
+    biometric: bool = False
+
+
+class SessionIn(BaseModel):
+    persona: str
+    staff_id: Optional[str] = None
+
+
+class NameIn(BaseModel):
+    recipient_id: str
+    name: str
+
+
+class DecideIn(BaseModel):
+    tx_id: str
+    action: str                   # approve | reject | to_trusted
+    analyst: str = "Аналитик"
+    reason: str = ""
+
+
+class DropIn(BaseModel):
+    account: str
+    reason: str = ""
+    analyst: str = "Аналитик"
+
+
+class ClockIn(BaseModel):
+    hours: float
+
+
+def persona_or_404(pid):
+    if pid not in PERSONAS:
+        raise HTTPException(404, "unknown persona")
+    return PERSONAS[pid]
+
+
+def sync_guardians():
+    """The app's older 'guardian' view of a persona follows the trusted contact setting."""
+    for pid, p in PERSONAS.items():
+        g = saqshy.trusted_active(pid)
+        p["guardian"] = {"name": g["name"].split()[0], "relation": g["relation"]} if g else None
+
+
+def protection(pid):
+    p, c = persona_or_404(pid), saqshy.client(pid)
+    return {"persona": pid, "balance": p["balance"], "locked": c["locked"], "available": saqshy.available(pid, p["balance"]),
+            "passkey": c["passkey"], "trusted": c["trusted"] and c["trusted"] | {"phone": saqshy.mask_phone(c["trusted"]["phone"])},
+            "index": saqshy.security_index(c), "index_parts": saqshy.INDEX_POINTS, "call": saqshy.SESSIONS.get(pid)}
+
+
+@app.get("/api/protect/{pid}")
+def protect_state(pid: str):
+    return protection(pid)
+
+
+@app.post("/api/protect/trusted/invite")
+def trusted_invite(body: TrustedIn):
+    persona_or_404(body.persona)
+    if len(body.name.strip()) < 2 or len(re.sub(r"\D", "", body.phone)) < 10:
+        raise HTTPException(400, "name and a full phone number are required")
+    saqshy.client(body.persona)["trusted"] = {
+        "name": body.name.strip(), "relation": {"kk": body.relation_kk, "ru": body.relation_ru}, "phone": body.phone,
+        "other_bank": body.other_bank, "state": "invited"}
+    saqshy.audit(PERSONAS[body.persona]["name"], "client", "trusted_invited", body.persona,
+                 f"{body.name} {body.phone} via {'sms' if body.other_bank else 'app'}")
+    sync_guardians()
+    return protection(body.persona)
+
+
+@app.post("/api/protect/trusted/accept")
+def trusted_accept(body: PersonaIn):
+    t = saqshy.client(body.persona).get("trusted")
+    if not t or t["state"] != "invited":
+        raise HTTPException(400, "no pending invitation")
+    t["state"] = "active"
+    saqshy.audit(t["name"], "trusted", "trusted_accepted", body.persona, "consent given")
+    sync_guardians()
+    return protection(body.persona)
+
+
+@app.post("/api/protect/trusted/remove")
+def trusted_remove(body: PersonaIn):
+    persona_or_404(body.persona)
+    saqshy.client(body.persona)["trusted"] = None
+    saqshy.audit(PERSONAS[body.persona]["name"], "client", "trusted_removed", body.persona)
+    sync_guardians()
+    return protection(body.persona)
+
+
+@app.post("/api/protect/lock")
+def lock(body: LockIn):
+    p = persona_or_404(body.persona)
+    c = saqshy.client(body.persona)
+    if body.amount < 0 or body.amount > p["balance"]:
+        raise HTTPException(400, "amount must be within the balance")
+    if body.amount < c["locked"]:
+        raise HTTPException(403, "money leaves the safe only at an ATM or a branch with biometrics")
+    c["locked"] = body.amount
+    saqshy.audit(p["name"], "client", "locked", body.persona, f"{body.amount:.0f}")
+    return protection(body.persona)
+
+
+@app.post("/api/protect/unlock")
+def unlock(body: UnlockIn):
+    """Simulates the ATM / branch: the safe opens only there and only after biometrics."""
+    p = persona_or_404(body.persona)
+    c = saqshy.client(body.persona)
+    if body.channel not in ("atm", "branch") or not body.biometric:
+        raise HTTPException(403, "the safe opens only at an ATM or a branch after biometrics")
+    c["locked"] = max(0, c["locked"] - body.amount)
+    saqshy.audit(p["name"], "client", "unlocked", body.persona, f"{body.amount:.0f} at {body.channel}, biometrics ok")
+    return protection(body.persona)
+
+
+@app.post("/api/callstatus/start")
+def call_start(body: SessionIn):
+    persona_or_404(body.persona)
+    st = saqshy.staff(body.staff_id or saqshy.SEED["staff"][0]["id"])
+    if not st:
+        raise HTTPException(404, "unknown staff id")
+    saqshy.SESSIONS[body.persona] = st | {"since": saqshy.now_iso()}
+    saqshy.audit(st["name"], "staff", "call_started", body.persona, st["id"])
+    return saqshy.SESSIONS[body.persona]
+
+
+@app.post("/api/callstatus/end")
+def call_end(body: SessionIn):
+    st = saqshy.SESSIONS.pop(body.persona, None)
+    if st:
+        saqshy.audit(st["name"], "staff", "call_ended", body.persona, st["id"])
+    return {"ok": True}
+
+
+@app.get("/api/callstatus/{pid}")
+def call_status(pid: str):
+    """'Is this really the bank?': an open staff session means a real bank call, with the employee's name and ID."""
+    persona_or_404(pid)
+    st = saqshy.SESSIONS.get(pid)
+    return {"active": bool(st), "staff": st}
+
+
+@app.post("/api/recipient/check")
+def recipient_check(body: NameIn):
+    rec = next((r for r in RECIPIENTS if r["id"] == body.recipient_id), None)
+    if not rec:
+        raise HTTPException(404, "unknown recipient")
+    r = saqshy.name_check(rec["id"], body.name) or {"match": None, "owner_masked": None}
+    return r | {"drop_list": rec["account"] in saqshy.DROP_LIST}
+
+
+@app.post("/api/analyst/decide")
+def analyst_decide(body: DecideIn):
+    tx = TX.get(body.tx_id)
+    if not tx or tx["status"] not in ("awaiting_analyst", "awaiting_trusted", "in_dialog", "delayed", "verifying"):
+        raise HTTPException(400, "this transfer is not waiting for a decision")
+    if body.action == "to_trusted":
+        g = notify_guardian(tx, PERSONAS[tx["persona"]], approval=True) if tx.get("persona") else None
+        if not g:
+            raise HTTPException(400, "the client has no active trusted contact")
+        tx["status"] = "awaiting_trusted"
+    elif body.action in ("approve", "reject"):
+        tx["status"] = "approved" if body.action == "approve" else "cancelled"
+        for n in NOTIFICATIONS:
+            if n["tx_id"] == tx["id"] and n["state"] == "open":
+                n["state"], n["status"] = "closed", tx["status"]
+    else:
+        raise HTTPException(400, "action must be approve, reject or to_trusted")
+    saqshy.audit(body.analyst, "analyst", body.action, tx["id"], body.reason)
+    return tx
+
+
+@app.post("/api/analyst/droplist")
+def droplist_add(body: DropIn):
+    if not body.account.strip():
+        raise HTTPException(400, "account is required")
+    saqshy.DROP_LIST[body.account] = {"account": body.account, "reason": body.reason, "by": body.analyst, "time": saqshy.now_iso()}
+    saqshy.audit(body.analyst, "analyst", "droplist_added", body.account, body.reason)
+    return list(saqshy.DROP_LIST.values())
+
+
+@app.get("/api/audit")
+def audit_log():
+    return saqshy.AUDIT[:200]
+
+
+@app.post("/api/demo/clock")
+def demo_clock(body: ClockIn):
+    """Moves the demo clock forward, e.g. 24 hours to show what happens when the trusted contact stays silent."""
+    saqshy.CLOCK["offset_hours"] += max(0.0, body.hours)
+    expire_approvals()
+    return {"offset_hours": saqshy.CLOCK["offset_hours"], "now": saqshy.now_iso()}
+
+
+sync_guardians()
 
 DIST = HERE.parent / "frontend" / "dist"
 if DIST.exists():
