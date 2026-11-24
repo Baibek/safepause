@@ -95,3 +95,60 @@ test("pasted details and dictated typing are scored", async () => {
   const keys = r.signals.map((x) => x.key);
   assert.ok(keys.includes("pasted_details") && keys.includes("dictated_typing"));
 });
+
+// ---- passkey: a software authenticator with WebCrypto (EC P-256), as Touch ID / Face ID would sign
+import { b64u, unb64u, txChallenge } from "./webauthn.js";
+const enc = new TextEncoder();
+function rawToDer(raw) {
+  const part = (b) => { let i = 0; while (i < b.length - 1 && b[i] === 0) i++; let v = b.slice(i); if (v[0] & 0x80) v = new Uint8Array([0, ...v]); return [0x02, v.length, ...v]; };
+  const body = [...part(raw.slice(0, 32)), ...part(raw.slice(32))];
+  return new Uint8Array([0x30, body.length, ...body]);
+}
+async function authenticator() {
+  const kp = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+  const id = b64u(crypto.getRandomValues(new Uint8Array(16)));
+  const cd = (type, challenge) => b64u(enc.encode(JSON.stringify({ type, challenge, origin: "http://testserver" })));
+  return {
+    id, spki: b64u(await crypto.subtle.exportKey("spki", kp.publicKey)), cd,
+    async sign(challenge) {
+      const clientData = cd("webauthn.get", challenge);
+      const auth = new Uint8Array([...new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode("testserver"))), 0x05, 0, 0, 0, 1]);
+      const signed = new Uint8Array([...auth, ...new Uint8Array(await crypto.subtle.digest("SHA-256", unb64u(clientData)))]);
+      const raw = new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, kp.privateKey, signed));
+      return { credential_id: id, authenticator_data: b64u(auth), client_data_json: clientData, signature: b64u(rawToDer(raw)) };
+    },
+  };
+}
+async function enroll(a) {
+  const begin = await ok("/api/passkey/register/begin", { persona: "daniyar" });
+  return ok("/api/passkey/register/finish", { persona: "daniyar", credential_id: a.id, public_key: a.spki, alg: -7, client_data_json: a.cd("webauthn.create", begin.challenge) });
+}
+const verifyTx = async () => (await transfer({ persona: "daniyar", amount: 60000, other_bank: true })).tx_id;
+
+test("passkey: enrolment raises the index and a signed transfer passes the verification call", async () => {
+  const a = await authenticator();
+  assert.equal((await enroll(a)).index, 35);
+  const tx = await verifyTx();
+  assert.equal((await err("/api/verify/respond", { tx_id: tx, answer: "self" })).status, 403);
+  const ch = await ok("/api/passkey/challenge", { tx_id: tx });
+  assert.ok(ch.required); assert.equal(ch.details.amount, 60000);
+  assert.ok((await ok("/api/passkey/verify", { tx_id: tx, ...(await a.sign(ch.challenge)) })).user_verified);
+  assert.equal((await ok("/api/verify/respond", { tx_id: tx, answer: "self" })).final.decision, "approved");
+});
+
+test("passkey: a signature for other details or from another device fails", async () => {
+  const a = await authenticator(); await enroll(a);
+  const tx = await verifyTx();
+  const ch = await ok("/api/passkey/challenge", { tx_id: tx });
+  const other = b64u(await txChallenge({ ...ch.details, recipient: "KZ00 •••• 0000" }));
+  assert.equal((await err("/api/passkey/verify", { tx_id: tx, ...(await a.sign(other)) })).status, 403);
+  const b = await authenticator();
+  assert.equal((await err("/api/passkey/verify", { tx_id: tx, ...(await b.sign(ch.challenge)) })).status, 403);
+});
+
+test("passkey: same canonical challenge as the server", async () => {
+  // python: hashlib.sha256(json.dumps(d, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
+  const d = { tx: "TX-1", amount: 60000, recipient: "KZ31 •••• 2208", nonce: "abc" };
+  const hex = [...(await txChallenge(d))].map((x) => x.toString(16).padStart(2, "0")).join("");
+  assert.equal(hex, "478208f66626969150a9a3e9eef73cfb21478eb5211541a4256e37b78ed98286");
+});

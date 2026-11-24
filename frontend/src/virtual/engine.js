@@ -1,6 +1,7 @@
 // Serverless port of backend/main.py: the whole Senim API runs in the browser.
 import { evaluate as policyEvaluate, POLICY } from "./policy.js";
 import * as S from "./saqshy.js";
+import * as WA from "./webauthn.js";
 import TEXTS from "../../../shared/saqshy_texts.json";
 // The LLM is reached through the Claude artifact runtime (`sample`); without it, templates are used.
 import data from "./data.json";
@@ -297,6 +298,7 @@ const routes = {
     const tx = TX.get(b.tx_id);
     if (!tx || tx.status !== "verifying") throw fail(404, "no verification call for this transfer");
     if (!VERIFY.done[b.answer]) throw fail(400, "answer must be self, not_me or no_answer");
+    if (b.answer === "self" && S.client(tx.persona).passkey_cred && !tx.passkey_signed) throw fail(403, "confirm the transfer with your passkey first");
     const lang = b.lang === "ru" ? "ru" : "kk";
     const pressed = { self: { kk: "1 — өзім жасап жатырмын", ru: "1 — делаю сам" }, not_me: { kk: "2 — мен жасаған жоқпын", ru: "2 — это не я" },
       no_answer: { kk: "Қоңырауға жауап берілмеді", ru: "Звонок без ответа" } }[b.answer][lang];
@@ -436,6 +438,42 @@ const routes = {
     S.audit(b.analyst || "Аналитик", "analyst", "droplist_added", b.account, b.reason || "");
     return Object.values(S.DROP_LIST);
   },
+  async "/api/passkey/register/begin"(b) {
+    const p = personaOr404(b.persona);
+    REG[b.persona] = crypto.getRandomValues(new Uint8Array(32));
+    return { challenge: WA.b64u(REG[b.persona]), rp_name: "Senim", user_id: WA.b64u(new TextEncoder().encode(b.persona)), user_name: p.name };
+  },
+  async "/api/passkey/register/finish"(b) {
+    personaOr404(b.persona);
+    const challenge = REG[b.persona]; delete REG[b.persona];
+    if (!challenge) throw fail(400, "start the registration first");
+    try { await WA.verifyRegistration(b.client_data_json, challenge, rpId(), b.public_key, b.alg); }
+    catch (e) { throw fail(400, `passkey not accepted: ${e.message}`); }
+    Object.assign(S.client(b.persona), { passkey: true, passkey_cred: { id: b.credential_id, public_key: b.public_key, alg: b.alg } });
+    S.audit(personaOr404(b.persona).name, "client", "passkey_added", b.persona);
+    return protection(b.persona);
+  },
+  async "/api/passkey/challenge"(b) {
+    const tx = TX.get(b.tx_id);
+    if (!tx || !tx.persona) throw fail(404, "unknown transfer");
+    const cred = S.client(tx.persona).passkey_cred;
+    if (!cred) return { required: false };
+    const details = { tx: tx.id, amount: Math.round(tx.amount), recipient: tx.recipient, nonce: uid(12).toLowerCase() };
+    tx.passkey_details = details;
+    return { required: true, challenge: WA.b64u(await WA.txChallenge(details)), credential_ids: [cred.id], details };
+  },
+  async "/api/passkey/verify"(b) {
+    const tx = TX.get(b.tx_id);
+    if (!tx || !tx.passkey_details) throw fail(400, "ask for a challenge first");
+    const cred = S.client(tx.persona).passkey_cred;
+    if (!cred || b.credential_id !== cred.id) throw fail(403, "unknown passkey");
+    let r;
+    try { r = await WA.verifyAssertion(cred.public_key, cred.alg, b.authenticator_data, b.client_data_json, b.signature, await WA.txChallenge(tx.passkey_details), rpId()); }
+    catch (e) { S.audit(tx.client, "client", "passkey_failed", tx.id, e.message); throw fail(403, `passkey check failed: ${e.message}`); }
+    tx.passkey_signed = true;
+    S.audit(tx.client, "client", "passkey_signed", tx.id, `${tx.passkey_details.amount} -> ${tx.recipient}, user verified: ${r.user_verified}`);
+    return { ok: true, ...r };
+  },
   async "/api/audit"() { return S.AUDIT.slice(0, 200).map((e) => ({ ...e })); },
   async "/api/demo/clock"(b) {
     S.CLOCK.offset_hours += Math.max(0, Number(b.hours) || 0);
@@ -443,6 +481,9 @@ const routes = {
     return { offset_hours: S.CLOCK.offset_hours, now: S.nowIso() };
   },
 };
+
+const REG = {};
+const rpId = () => (typeof location !== "undefined" ? location.hostname : "testserver");
 
 function personaOr404(pid) {
   const p = personas.find((x) => x.id === pid);
@@ -452,7 +493,7 @@ function personaOr404(pid) {
 
 function protection(pid) {
   const p = personaOr404(pid), c = S.client(pid);
-  return { persona: pid, balance: p.balance, locked: c.locked, available: S.available(pid, p.balance), passkey: c.passkey,
+  return { persona: pid, balance: p.balance, locked: c.locked, available: S.available(pid, p.balance), passkey: Boolean(c.passkey), passkey_device: Boolean(c.passkey_cred),
     trusted: c.trusted && { ...c.trusted, phone: S.maskPhone(c.trusted.phone) }, index: S.securityIndex(c),
     index_parts: S.INDEX_POINTS, call: S.SESSIONS[pid] || null };
 }

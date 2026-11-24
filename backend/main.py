@@ -10,7 +10,7 @@ from typing import Optional
 
 import pandas as pd
 import xgboost as xgb
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -19,6 +19,7 @@ import graph as graph_mod
 import llm
 import policy
 import saqshy
+import webauthn
 from features import FEATURES, build_features
 
 HERE = Path(__file__).parent
@@ -463,6 +464,8 @@ def verify_respond(body: VerifyIn):
         raise HTTPException(404, "no verification call for this transfer")
     if body.answer not in VERIFY_DONE:
         raise HTTPException(400, "answer must be self, not_me or no_answer")
+    if body.answer == "self" and saqshy.client(tx["persona"]).get("passkey_cred") and not tx.get("passkey_signed"):
+        raise HTTPException(403, "confirm the transfer with your passkey first")
     lang = body.lang if body.lang in ("kk", "ru") else "kk"
     pressed = {"self": {"kk": "1 — өзім жасап жатырмын", "ru": "1 — делаю сам"},
                "not_me": {"kk": "2 — мен жасаған жоқпын", "ru": "2 — это не я"},
@@ -634,7 +637,7 @@ def sync_guardians():
 def protection(pid):
     p, c = persona_or_404(pid), saqshy.client(pid)
     return {"persona": pid, "balance": p["balance"], "locked": c["locked"], "available": saqshy.available(pid, p["balance"]),
-            "passkey": c["passkey"], "trusted": c["trusted"] and c["trusted"] | {"phone": saqshy.mask_phone(c["trusted"]["phone"])},
+            "passkey": bool(c["passkey"]), "passkey_device": bool(c.get("passkey_cred")), "trusted": c["trusted"] and c["trusted"] | {"phone": saqshy.mask_phone(c["trusted"]["phone"])},
             "index": saqshy.security_index(c), "index_parts": saqshy.INDEX_POINTS, "call": saqshy.SESSIONS.get(pid)}
 
 
@@ -766,6 +769,98 @@ def droplist_add(body: DropIn):
     saqshy.DROP_LIST[body.account] = {"account": body.account, "reason": body.reason, "by": body.analyst, "time": saqshy.now_iso()}
     saqshy.audit(body.analyst, "analyst", "droplist_added", body.account, body.reason)
     return list(saqshy.DROP_LIST.values())
+
+
+class PasskeyBeginIn(BaseModel):
+    persona: str
+
+
+class PasskeyFinishIn(BaseModel):
+    persona: str
+    credential_id: str
+    public_key: str           # SPKI, base64url (response.getPublicKey())
+    alg: int
+    client_data_json: str
+
+
+class PasskeyTxIn(BaseModel):
+    tx_id: str
+
+
+class PasskeyAssertIn(BaseModel):
+    tx_id: str
+    credential_id: str
+    authenticator_data: str
+    client_data_json: str
+    signature: str
+
+
+REG_CHALLENGES = {}
+
+
+def rp_id_of(request: Request):
+    origin = request.headers.get("origin") or ""
+    host = origin.split("://")[-1] if origin else request.headers.get("host", "")
+    return host.split(":")[0]
+
+
+@app.post("/api/passkey/register/begin")
+def passkey_begin(body: PasskeyBeginIn):
+    p = persona_or_404(body.persona)
+    REG_CHALLENGES[body.persona] = uuid.uuid4().bytes + uuid.uuid4().bytes
+    return {"challenge": webauthn.b64u(REG_CHALLENGES[body.persona]), "rp_name": "Senim",
+            "user_id": webauthn.b64u(body.persona.encode()), "user_name": p["name"]}
+
+
+@app.post("/api/passkey/register/finish")
+def passkey_finish(body: PasskeyFinishIn, request: Request):
+    persona_or_404(body.persona)
+    challenge = REG_CHALLENGES.pop(body.persona, None)
+    if not challenge:
+        raise HTTPException(400, "start the registration first")
+    try:
+        webauthn.verify_registration(body.client_data_json, challenge, rp_id_of(request), body.public_key, body.alg)
+    except (webauthn.PasskeyError, ValueError) as e:
+        raise HTTPException(400, f"passkey not accepted: {e}") from e
+    c = saqshy.client(body.persona)
+    c["passkey"], c["passkey_cred"] = True, {"id": body.credential_id, "public_key": body.public_key, "alg": body.alg}
+    saqshy.audit(PERSONAS[body.persona]["name"], "client", "passkey_added", body.persona)
+    return protection(body.persona)
+
+
+@app.post("/api/passkey/challenge")
+def passkey_challenge(body: PasskeyTxIn):
+    """What the client signs: the transfer's own details (amount, recipient, id), not a code."""
+    tx = TX.get(body.tx_id)
+    if not tx or not tx.get("persona"):
+        raise HTTPException(404, "unknown transfer")
+    cred = saqshy.client(tx["persona"]).get("passkey_cred")
+    if not cred:
+        return {"required": False}
+    details = {"tx": tx["id"], "amount": int(tx["amount"]), "recipient": tx["recipient"], "nonce": uuid.uuid4().hex[:12]}
+    tx["passkey_details"] = details
+    return {"required": True, "challenge": webauthn.b64u(webauthn.tx_challenge(details)),
+            "credential_ids": [cred["id"]], "details": details}
+
+
+@app.post("/api/passkey/verify")
+def passkey_verify(body: PasskeyAssertIn, request: Request):
+    tx = TX.get(body.tx_id)
+    if not tx or not tx.get("passkey_details"):
+        raise HTTPException(400, "ask for a challenge first")
+    cred = saqshy.client(tx["persona"]).get("passkey_cred")
+    if not cred or body.credential_id != cred["id"]:
+        raise HTTPException(403, "unknown passkey")
+    try:
+        r = webauthn.verify_assertion(cred["public_key"], cred["alg"], body.authenticator_data, body.client_data_json,
+                                      body.signature, webauthn.tx_challenge(tx["passkey_details"]), rp_id_of(request))
+    except (webauthn.PasskeyError, ValueError) as e:
+        saqshy.audit(tx["client"], "client", "passkey_failed", tx["id"], str(e))
+        raise HTTPException(403, f"passkey check failed: {e}") from e
+    tx["passkey_signed"] = True
+    saqshy.audit(tx["client"], "client", "passkey_signed", tx["id"],
+                 f"{tx['passkey_details']['amount']} -> {tx['recipient']}, user verified: {r['user_verified']}")
+    return {"ok": True, **r}
 
 
 @app.get("/api/audit")

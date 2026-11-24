@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { fmt } from "../i18n.js";
 import { Icon } from "./PhoneFrame.jsx";
 import { loadCall, playTurn, speak, stopSpeaking } from "../call/speech.js";
+import { passkeyChallenge, signWithPasskey } from "./passkey.js";
 
 /**
  * The bank's verification call. Before an unusual transfer leaves, the bank's robot calls the client, reads a short
@@ -14,6 +15,8 @@ export default function VerifyCall({ check, amount, recipient, lang, P, onAnswer
   const [line, setLine] = useState(-1);
   const [secs, setSecs] = useState(0);
   const [sent, setSent] = useState(false);
+  const [sign, setSign] = useState(null);           // the transfer details to sign with the passkey, after pressing 1
+  const [signErr, setSignErr] = useState("");
   const run = useRef(0);
   const script = check.verify.script;
 
@@ -35,10 +38,20 @@ export default function VerifyCall({ check, amount, recipient, lang, P, onAnswer
       else await speak(script[i], lang, "caller");
     }
   };
-  const reply = (answer) => {
+  const reply = async (answer) => {
     if (sent) return;
+    if (answer === "self" && !sign) {
+      // a client with a passkey signs this exact transfer before it goes (instead of an SMS code)
+      const c = await passkeyChallenge(check.tx_id).catch(() => null);
+      if (c) { run.current++; stopSpeaking(); setSign(c); return; }
+    }
     setSent(true); run.current++; stopSpeaking();
     onAnswer(answer);
+  };
+  const doSign = async () => {
+    setSignErr("");
+    try { await signWithPasskey(check.tx_id, sign); setSent(true); onAnswer("self"); }
+    catch (e) { setSignErr(`${P.sign.failed} (${String(e.message || e).slice(0, 80)})`); }
   };
   const mm = `${String(Math.floor(secs / 60)).padStart(2, "0")}:${String(secs % 60).padStart(2, "0")}`;
 
@@ -72,10 +85,23 @@ export default function VerifyCall({ check, amount, recipient, lang, P, onAnswer
       <section className="vf-captions" aria-live="polite">
         {script.map((s, i) => <p key={i} className={i === line ? "now" : i < line ? "done" : ""}>{s}</p>)}
       </section>
-      <div className="vf-keys">
+      {sign && (
+        <section className="vf-sign" role="dialog" aria-label={P.sign.title}>
+          <b>{P.sign.title}</b>
+          <small>{P.sign.lead}</small>
+          <dl>
+            <div><dt>{P.sign.amount}</dt><dd>{fmt(sign.details.amount)} ₸</dd></div>
+            <div><dt>{P.sign.to}</dt><dd>{sign.details.recipient}</dd></div>
+            <div><dt>{P.sign.id}</dt><dd>{sign.details.tx}</dd></div>
+          </dl>
+          <button className="btn primary-blue" onClick={doSign}>{P.sign.btn}</button>
+          {signErr && <small className="vf-err">{signErr}</small>}
+        </section>
+      )}
+      {!sign && <div className="vf-keys">
         <button className="vf-key yes" disabled={sent} onClick={() => reply("self")}><b>1</b><span>{V.yes}</span></button>
         <button className="vf-key no" disabled={sent} onClick={() => reply("not_me")}><b>2</b><span>{V.no}</span></button>
-      </div>
+      </div>}
     </div>
   );
 }

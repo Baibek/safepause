@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { api, fmt } from "../i18n.js";
 import { Icon } from "./PhoneFrame.jsx";
+import { passkeySupported, registerPasskey } from "./passkey.js";
 
 /**
  * Senim Saqshy "Protection" section: the security index, "Is this really the bank?" (Call Status), the trusted contact
@@ -47,6 +48,17 @@ export default function ProtectScreen({ persona, P, lang, onApprovals, onChange 
               <small>+{st.index_parts[k]}{k === "passkey" && !on ? ` · ${R.soon}` : ""}</small></li>
           ))}</ul>
         </div>
+      </section>
+
+      <section className="pr-card">
+        <div className="pr-head"><span className="pr-ic"><Icon name="shield" size={20} stroke={2} /></span><b>{R.passkeyTitle}</b></div>
+        <small>{R.passkeyHint}</small>
+        {st.passkey_device ? <p className="pr-call ok"><Icon name="check" size={18} stroke={2.6} /><b>{R.passkeyOn}</b></p>
+          : !passkeySupported() ? <p className="pr-note">{R.passkeyNo}</p>
+          : <button className="btn primary-blue" onClick={async () => {
+              setErr("");
+              try { const s = await registerPasskey(persona.id); setSt(s); onChange?.(s); } catch (e) { setErr(String(e.message || e)); }
+            }}>{R.passkeyAdd}</button>}
       </section>
 
       <section className="pr-card">

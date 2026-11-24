@@ -526,3 +526,8 @@
 .staff-console { display: grid; gap: 10px; } .staff-console h2 { margin: 0; } .staff-console button { justify-self: stretch; }
 .console-live { margin: 0; padding: 8px 10px; border-radius: 10px; background: #E3F5EC; color: #0E5E3A; font-size: 13.5px; }
 .result.awaiting_trusted .res-ic { background: var(--pn-orange); } .result.awaiting_analyst .res-ic { background: var(--pn-blue); }
+.vf-sign { background: #fff; color: var(--pn-navy); border-radius: 20px; padding: 14px 16px; display: grid; gap: 8px; }
+.vf-sign > b { font-size: 17px; } .vf-sign > small { font-size: 12.5px; color: var(--pn-mute); line-height: 1.4; }
+.vf-sign dl { margin: 0; display: grid; gap: 4px; } .vf-sign dl div { display: flex; justify-content: space-between; gap: 10px; font-size: 13.5px; }
+.vf-sign dt { color: var(--pn-mute); } .vf-sign dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+.vf-err { color: var(--pn-red); font-size: 12.5px; }
