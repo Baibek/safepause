@@ -82,7 +82,7 @@ export default function Client({ boot, lang, t }) {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [tStep, setTStep] = useState("menu");
   const [prot, setProt] = useState(null);   // the client's protection settings, for the trusted-contact screen
-  useEffect(() => { if (tab === "guardian" || tab === "protect") api(`/api/protect/${sc.persona}`).then(setProt).catch(() => {}); }, [tab, sc.persona]); // transfers section: menu of transfer types | form
+  useEffect(() => { if (tab === "guardian" || tab === "protect" || tab === "home") api(`/api/protect/${sc.persona}`).then(setProt).catch(() => {}); }, [tab, sc.persona, final]); // transfers section: menu of transfer types | form
   const P = PH[lang];
   const [callState, setCallState] = useState(null);
   const [scamCallAt, setScamCallAt] = useState(null);   // set when Call Guard flags a call: the bank app pauses transfers for an hour
@@ -111,7 +111,14 @@ export default function Client({ boot, lang, t }) {
   useEffect(() => { if (tab === "home" || tab === "history") loadHistory(); }, [tab, persona.name, final]);
 
   const resetFlow = () => { setFlow("form"); setCheck(null); setChat([]); setFinal(null); setErr(""); setBusy(false); };
-  const go = (to) => { if (to === "transfer") { resetFlow(); setTStep("menu"); } setTab(to); };
+  const [protectView, setProtectView] = useState("main");
+  const [protectNonce, setProtectNonce] = useState(0);   // tapping the tab again returns to the section's start
+  const go = (to) => {
+    if (to === "transfer") { resetFlow(); setTStep("menu"); }
+    if (to === "bankcall") { setProtectView("call"); setProtectNonce((n) => n + 1); setTab("protect"); return; }   // "Is this really the bank?"
+    if (to === "protect") { setProtectView("main"); setProtectNonce((n) => n + 1); }
+    setTab(to);
+  };
   const goHome = () => { resetFlow(); setTStep("menu"); setTab("home"); };
   const applyPreset = (k) => { resetFlow(); setTab("transfer"); setTStep("form"); setSc({ ttype: "phone", ...PRESETS[k] }); };
   const mode = tab === "call" ? "call" : tab === "messages" ? "message" : "transfer";
@@ -235,7 +242,7 @@ export default function Client({ boot, lang, t }) {
           const tabs = [
             { id: "home", icon: "home", label: P.tabs.home }, { id: "transfer", icon: "send", label: P.tabs.transfer },
             { id: "call", icon: "phone", label: P.tabs.call }, { id: "messages", icon: "message", label: P.tabs.messages },
-            { id: "history", icon: "clock", label: P.tabs.history },
+            { id: "protect", icon: "shield", label: P.tabs.protect },
           ];
           const callAlert = scamCallMinutes != null && (
             <div className="call-alert-x" role="status">
@@ -248,15 +255,15 @@ export default function Client({ boot, lang, t }) {
           if (tab === "home") {
             key = "home";
             screenNode = <HomeScreen persona={persona} balance={balance} P={P} t={t} history={history} scamCallMinutes={scamCallMinutes}
-              onDismissCall={() => setScamCallAt(null)} go={go} />;
+              onDismissCall={() => setScamCallAt(null)} go={go} prot={prot} />;
           } else if (tab === "history") {
-            key = "history"; screenNode = <HistoryScreen history={history} P={P} loading={historyLoading} />;
+            key = "history"; screenNode = <HistoryScreen history={history} P={P} loading={historyLoading} onBack={() => setTab("home")} />;
           } else if (tab === "guardian") {
             key = "guardian";
             screenNode = <GuardianScreen persona={persona} notes={notes} P={P} t={t} lang={lang} onRespond={guardian} trusted={prot?.persona === persona.id ? prot.trusted : undefined} />;
           } else if (tab === "protect") {
-            key = "protect";
-            screenNode = <ProtectScreen persona={persona} P={P} lang={lang} onApprovals={() => setTab("guardian")} onChange={setProt} />;
+            key = "protect-" + protectNonce;
+            screenNode = <ProtectScreen persona={persona} P={P} lang={lang} onApprovals={() => setTab("guardian")} onChange={setProt} initial={protectView} />;
           } else if (tab === "messages") {
             key = "messages"; screenNode = <MessagesScreen boot={boot} lang={lang} t={t} P={P} />;
           } else if (tab === "call") {
@@ -289,7 +296,7 @@ export default function Client({ boot, lang, t }) {
           const tone = darkScreen || key === "warning" ? "light" : "dark";
           return (
             <PhoneFrame tone={tone} call={callPill}
-              tabBar={showTabs && <TabBar tabs={tabs} active={tab === "guardian" || tab === "protect" ? "home" : tab} onChange={go} />}>
+              tabBar={showTabs && <TabBar tabs={tabs} active={tab === "guardian" ? "protect" : tab === "history" ? "home" : tab} onChange={go} />}>
               <div className={"screen-slot" + (key === "warning" ? " warn-bg" : darkScreen ? " dark-bg" : "")} key={key}>{screenNode}</div>
             </PhoneFrame>
           );

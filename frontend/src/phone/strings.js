@@ -2,11 +2,12 @@
 // message checks) stays in ../i18n.js and is passed in as `t`.
 export const PH = {
   kk: {
-    tabs: { home: "Басты", transfer: "Аударым", call: "Қоңырау", messages: "Тексеру", history: "Тарих" },
+    tabs: { home: "Басты", transfer: "Аударым", call: "Қоңырау", messages: "Тексеру", history: "Тарих", protect: "Қорғаныс" },
     hello: (n) => `Сәлем, ${n}`,
     available: "Қолжетімді қаражат",
     card: "Карта •••• 4417",
-    actions: { send: "Аудару", messages: "SMS тексеру", history: "Тарих", guardian: "Қорғаныс" },
+    actions: { send: "Аудару", messages: "SMS тексеру", history: "Тарих", guardian: "Қорғаныс", bankCall: "Банк пе?" },
+    strip: (n, of) => `${of} қорғаныстың ${n}-еуі қосулы`, stripNone: "Қорғаныс әлі қосылмаған", inSafe: (a) => `Сейфте ${a} ₸`,
     secureTitle: "Қорғаныс қосулы",
     secureSub: "Әр аударым жіберілмес бұрын тексеріледі",
     recent: "Соңғы операциялар",
@@ -56,6 +57,10 @@ export const PH = {
     loading: "Жүктелуде…",
     protect: {
       title: "Қорғаныс", indexTitle: "Қауіпсіздік индексі", indexHint: "Әр қорғаныс қосылған сайын индекс өседі.",
+      on: "Қосулы", off: "Қосу", invitedChip: "Келісім күтуде", back: "Қорғаныс",
+      sub: { passkey: "SMS-кодтың орнына Face ID / Touch ID", trusted: "Ірі операцияны туысыңыз растайды", locked: "Жинақ аударылмайды" },
+      indexLead: (n) => (n >= 100 ? "Барлық қорғаныс қосулы." : n >= 60 ? "Жақсы. Тағы бір қорғаныс қосыңыз." : "Қорғанысты қосыңыз: әрқайсысы бір минут алады."),
+      callBig: "Бұл шынымен банк пе?", callBigSub: "Қоңырау кезінде басыңыз",
       parts: { passkey: "Passkey", trusted: "Сенімді адам", locked: "Сейф" }, soon: "Жақында",
       callTitle: "Бұл шынымен банк пе?", callSub: "Банктен қоңырау келсе, осы батырманы басыңыз: қызметкер шынымен сөйлесіп тұрғанын көрсетеміз.",
       callBtn: "Тексеру", callReal: (n, id) => `Иә, сізбен банк қызметкері сөйлесіп тұр: ${n}, ID ${id}`,
@@ -86,11 +91,12 @@ export const PH = {
     },
   },
   ru: {
-    tabs: { home: "Главная", transfer: "Перевод", call: "Звонок", messages: "Проверка", history: "История" },
+    tabs: { home: "Главная", transfer: "Перевод", call: "Звонок", messages: "Проверка", history: "История", protect: "Защита" },
     hello: (n) => `Привет, ${n}`,
     available: "Доступно",
     card: "Карта •••• 4417",
-    actions: { send: "Перевести", messages: "Проверить SMS", history: "История", guardian: "Защита" },
+    actions: { send: "Перевести", messages: "Проверить SMS", history: "История", guardian: "Защита", bankCall: "Это банк?" },
+    strip: (n, of) => `Включено ${n} из ${of} защит`, stripNone: "Защита ещё не включена", inSafe: (a) => `В сейфе ${a} ₸`,
     secureTitle: "Защита включена",
     secureSub: "Каждый перевод проверяется до отправки",
     recent: "Последние операции",
@@ -140,6 +146,10 @@ export const PH = {
     loading: "Загрузка…",
     protect: {
       title: "Защита", indexTitle: "Индекс безопасности", indexHint: "Каждая включённая защита повышает индекс.",
+      on: "Включено", off: "Включить", invitedChip: "Ждём согласия", back: "Защита",
+      sub: { passkey: "Face ID / Touch ID вместо SMS-кода", trusted: "Крупную операцию подтверждает родственник", locked: "Сбережения нельзя перевести" },
+      indexLead: (n) => (n >= 100 ? "Все защиты включены." : n >= 60 ? "Хорошо. Включите ещё одну защиту." : "Включите защиту: каждая занимает минуту."),
+      callBig: "Это правда банк?", callBigSub: "Нажмите во время звонка",
       parts: { passkey: "Passkey", trusted: "Доверенное лицо", locked: "Сейф" }, soon: "Скоро",
       callTitle: "Это правда банк?", callSub: "Если вам звонят из банка, нажмите: покажем, действительно ли с вами говорит сотрудник.",
       callBtn: "Проверить", callReal: (n, id) => `Да, с вами говорит сотрудник банка: ${n}, ID ${id}`,

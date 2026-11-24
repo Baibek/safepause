@@ -42,8 +42,25 @@ function TxRow({ tx, P }) {
   );
 }
 
-export function HomeScreen({ persona, balance, P, t, history, scamCallMinutes, onDismissCall, go }) {
+/** A small ring for the security index (0..100). */
+export function IndexRing({ value, size = 44, stroke = 5 }) {
+  const r = (size - stroke) / 2, C = 2 * Math.PI * r;
+  return (
+    <span className="idx-ring" style={{ width: size, height: size }} aria-hidden="true">
+      <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size}>
+        <circle cx={size / 2} cy={size / 2} r={r} className="idx-track" strokeWidth={stroke} />
+        <circle cx={size / 2} cy={size / 2} r={r} className="idx-value" strokeWidth={stroke} strokeDasharray={C}
+          strokeDashoffset={C * (1 - value / 100)} transform={`rotate(-90 ${size / 2} ${size / 2})`} />
+      </svg>
+      <b>{value}</b>
+    </span>
+  );
+}
+
+export function HomeScreen({ persona, balance, P, t, history, scamCallMinutes, onDismissCall, go, prot }) {
   const first = persona.name.split(" ")[0];
+  const locked = prot?.persona === persona.id ? prot.locked : 0;
+  const on = prot ? [prot.passkey_device, prot.trusted?.state === "active", prot.locked > 0].filter(Boolean).length : 0;
   return (
     <div className="app-screen home">
       <header className="home-head">
@@ -52,14 +69,9 @@ export function HomeScreen({ persona, balance, P, t, history, scamCallMinutes, o
       </header>
       <section className="balance-card">
         <span>{P.available}</span>
-        <b>{fmt(balance)} <i>₸</i></b>
-        <small>{P.card}</small>
+        <b>{fmt(balance - locked)} <i>₸</i></b>
+        <div className="bc-foot"><small>{P.card}</small>{locked > 0 && <small className="bc-safe"><Icon name="card" size={13} stroke={2.2} />{P.inSafe(fmt(locked))}</small>}</div>
       </section>
-      <div className="quick">
-        {[["send", "transfer"], ["message", "messages"], ["clock", "history"], ["shield", "protect"]].map(([icon, to], i) => (
-          <button key={to} onClick={() => go(to)}><span><Icon name={icon} /></span>{Object.values(P.actions)[i]}</button>
-        ))}
-      </div>
       {scamCallMinutes != null ? (
         <section className="sec-card alert" role="status">
           <span className="sec-ic"><Icon name="alert" /></span>
@@ -67,11 +79,17 @@ export function HomeScreen({ persona, balance, P, t, history, scamCallMinutes, o
             <button className="link-btn" onClick={onDismissCall}>{t.callAlertOk}</button></div>
         </section>
       ) : (
-        <section className="sec-card">
-          <span className="sec-ic"><Icon name="shield" /></span>
-          <div><b>{P.secureTitle}</b><small>{P.secureSub}</small></div>
-        </section>
+        <button className="prot-strip" onClick={() => go("protect")}>
+          <IndexRing value={prot?.index ?? 0} />
+          <span className="ps-txt"><b>{P.protect.indexTitle}</b><small>{on ? P.strip(on, 3) : P.stripNone}</small></span>
+          <Icon name="chevron" size={18} />
+        </button>
       )}
+      <div className="quick">
+        {[["send", "transfer", P.actions.send], ["message", "messages", P.actions.messages], ["phone", "bankcall", P.actions.bankCall], ["clock", "history", P.actions.history]].map(([icon, to, label]) => (
+          <button key={to} className={to === "bankcall" ? "hot" : ""} onClick={() => go(to)}><span><Icon name={icon} /></span>{label}</button>
+        ))}
+      </div>
       <div className="list-head"><h3>{P.recent}</h3>{history.length > 0 && <button className="link-btn" onClick={() => go("history")}>{P.all}</button>}</div>
       {history.length ? <ul className="tx-list">{history.slice(0, 3).map((tx) => <TxRow key={tx.id} tx={tx} P={P} />)}</ul>
         : <p className="empty">{P.emptyHistory}</p>}
@@ -275,9 +293,10 @@ export function GuardianScreen({ persona, notes, P, t, lang, onRespond, trusted 
   );
 }
 
-export function HistoryScreen({ history, P, loading }) {
+export function HistoryScreen({ history, P, loading, onBack }) {
   return (
     <div className="app-screen history">
+      {onBack && <header className="nav-bar"><button className="nav-back" onClick={onBack} aria-label={P.tabs.home}><Icon name="back" size={22} stroke={2.2} /></button><b /><span /></header>}
       <h1 className="large-title">{P.historyTitle}</h1>
       {loading && !history.length ? <p className="empty">{P.loading}</p>
         : history.length ? <ul className="tx-list">{history.map((tx) => <TxRow key={tx.id} tx={tx} P={P} />)}</ul>
