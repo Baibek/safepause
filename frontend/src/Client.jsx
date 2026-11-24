@@ -143,7 +143,8 @@ export default function Client({ boot, lang, t }) {
           signals: { on_call: sc.on_call, unknown_caller: sc.unknown_caller, remote_app: sc.remote_app,
             hour: sc.night ? 2 : null, session_seconds: sc.pace, scam_call_minutes: scamCallMinutes,
             new_device: Boolean(sc.new_device), vpn: Boolean(sc.vpn), loan_minutes_ago: sc.loan ? 5 : null,
-            pasted: Boolean(sc.pasted), typing_pause_ms: sc.typing_pause_ms || null },
+            pasted: Boolean(sc.pasted), typing_pause_ms: sc.typing_pause_ms || null, typing_median_ms: sc.typing_median_ms || null,
+            app_switches: sc.app_switches || 0, phone_flat: Boolean(sc.phone_flat), corrections: sc.corrections || 0 },
           recipient_name: sc.recipient_name || null,
         }),
         new Promise((r) => setTimeout(r, 1100)),   // let the scan read as a scan
@@ -225,6 +226,7 @@ export default function Client({ boot, lang, t }) {
         <label className="check sub"><input type="checkbox" disabled={!sc.new_device} checked={Boolean(sc.loan)} onChange={(e) => set({ loan: e.target.checked })} />{t.sigLoan}</label>
         <label className="check"><input type="checkbox" checked={Boolean(sc.vpn)} onChange={(e) => set({ vpn: e.target.checked })} />{t.sigVpn}</label>
         <p className="hint behavior">{t.behavior(Boolean(sc.pasted), (sc.typing_pause_ms || 0) / 1000)}</p>
+        <p className="hint behavior">{t.behavior2(sc.typing_median_ms || 0, boot.behavior?.[sc.persona]?.typing_ms || 0, sc.app_switches || 0, sc.corrections || 0)}</p>
         <label className="field">{t.sigTime}
           <select value={sc.night ? "1" : "0"} onChange={(e) => set({ night: e.target.value === "1" })}>
             <option value="0">{t.timeNow}</option><option value="1">{t.timeNight}</option>

@@ -134,6 +134,19 @@ function Detail({ tx, lang, t, A, onBack, onDecide, onDrop, dropList, notice, on
       </div>
       {tx.scam_call && <p className="an-flag">{A.afterCall}</p>}
       {tx.guardian && <p className="an-flag soft">{A.guardian(tx.guardian.name)}</p>}
+      {tx.behavior && (tx.behavior.typing_median_ms || tx.behavior.app_switches > 0 || tx.behavior.pasted || tx.behavior.corrections > 0) && (
+        <>
+          <h2 className="an-h">{A.behaviorTitle}</h2>
+          <ul className="an-beh">
+            {tx.behavior.typing_median_ms && tx.behavior.typing_baseline_ms && <li>{A.beh.rhythm(tx.behavior.typing_median_ms, tx.behavior.typing_baseline_ms)}</li>}
+            {tx.behavior.typing_pause_ms > 0 && <li>{A.beh.pause((tx.behavior.typing_pause_ms / 1000).toFixed(1))}</li>}
+            <li className={tx.behavior.app_switches ? "hot" : ""}>{A.beh.switches(tx.behavior.app_switches)}</li>
+            <li className={tx.behavior.corrections >= 6 ? "hot" : ""}>{A.beh.corrections(tx.behavior.corrections)}</li>
+            {tx.behavior.pasted && <li className="hot">{A.beh.pasted}</li>}
+            {tx.behavior.phone_flat && <li className="hot">{A.beh.flat}</li>}
+          </ul>
+        </>
+      )}
       {tx.signals?.length > 0 && (
         <>
           <h2 className="an-h">{A.signalsTitle}</h2>

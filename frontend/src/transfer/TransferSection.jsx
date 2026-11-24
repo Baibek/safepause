@@ -28,14 +28,35 @@ export default function TransferSection({ step, setStep, boot, lang, t, P, balan
   const amount = Number(sc.amount) || 0;
   const field = type === "iban" ? rec.account : CONTACT[rec.id]?.[type] || rec.account;
   const words = amount ? amountInWords(amount, lang) : "";
-  // behaviour: pasted details and long pauses while typing the amount (as when someone dictates it)
-  const lastKey = React.useRef(0);
-  const onAmountKey = () => {
-    const t0 = performance.now(), gap = lastKey.current ? t0 - lastKey.current : 0;
-    lastKey.current = t0;
-    if (gap > (sc.typing_pause_ms || 0) && gap < 60_000) set({ typing_pause_ms: Math.round(gap) });
+  // behaviour, measured while the form is open: typing rhythm and pauses, corrections, pasted details,
+  // leaving the app (to read someone's instructions) and a phone lying flat (a call on the speaker)
+  const keys = React.useRef({ times: [], corrections: 0 });
+  const onKey = (e) => {
+    if (step !== "form") return;
+    const k = keys.current, t0 = performance.now();
+    if (e.key === "Backspace") k.corrections++;
+    else if (e.key.length !== 1) return;
+    k.times.push(t0);
+    const gaps = k.times.slice(1).map((x, i) => x - k.times[i]).filter((g) => g < 60_000);
+    if (!gaps.length) return set({ corrections: k.corrections });
+    const sorted = [...gaps].sort((a, b) => a - b);
+    set({ typing_median_ms: Math.round(sorted[Math.floor(sorted.length / 2)]), typing_pause_ms: Math.round(sorted[sorted.length - 1]), corrections: k.corrections });
   };
   const onPaste = () => set({ pasted: true });
+  useEffect(() => {
+    if (step !== "form") return;
+    keys.current = { times: [], corrections: 0 };
+    let switches = sc.app_switches || 0, flat = 0, seen = 0;
+    const vis = () => { if (document.hidden) set({ app_switches: ++switches }); };
+    const tilt = (e) => {
+      if (e.beta == null) return;
+      seen++; if (Math.abs(e.beta) < 12 && Math.abs(e.gamma || 0) < 12) flat++;
+      if (seen % 20 === 0) set({ phone_flat: flat / seen > 0.8 });
+    };
+    document.addEventListener("visibilitychange", vis);
+    window.addEventListener("deviceorientation", tilt);
+    return () => { document.removeEventListener("visibilitychange", vis); window.removeEventListener("deviceorientation", tilt); };
+  }, [step]);
   // name check for a first transfer to someone new: does the typed name match the account owner?
   const [nc, setNc] = useState(null);
   const typed = sc.recipient_name || "";
@@ -74,7 +95,7 @@ export default function TransferSection({ step, setStep, boot, lang, t, P, balan
   );
 
   return (
-    <div className="app-screen tr-x form">
+    <div className="app-screen tr-x form" onKeyDown={onKey}>
       <header className="nav-bar">
         <button className="nav-back" onClick={() => setStep("menu")} aria-label={t.trBack}><Icon name="back" size={22} stroke={2.2} /></button>
         <b>{t.trType[type]}</b>
@@ -113,7 +134,7 @@ export default function TransferSection({ step, setStep, boot, lang, t, P, balan
 
       <label className="field-label" htmlFor="amt">{t.trAmount}</label>
       <div className="amount-x">
-        <input id="amt" inputMode="numeric" autoComplete="off" value={amount ? fmt(amount) : ""} placeholder="0" onKeyDown={onAmountKey} onPaste={onPaste}
+        <input id="amt" inputMode="numeric" autoComplete="off" value={amount ? fmt(amount) : ""} placeholder="0" onPaste={onPaste}
           onChange={(e) => set({ amount: e.target.value.replace(/\D/g, "").slice(0, 9) })} />
         <span>₸</span>
       </div>

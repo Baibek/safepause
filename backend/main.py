@@ -344,6 +344,10 @@ class Signals(BaseModel):
     loan_minutes_ago: Optional[float] = None   # an online loan was taken this many minutes ago
     pasted: bool = False                       # recipient details were pasted from the clipboard
     typing_pause_ms: Optional[float] = None    # the longest pause while the amount was typed
+    typing_median_ms: Optional[float] = None   # median time between keystrokes in this transfer
+    app_switches: int = 0                      # times the app went to the background during the transfer
+    phone_flat: bool = False                   # the phone lay flat (device orientation), e.g. on speaker
+    corrections: int = 0                       # backspaces in the recipient and amount fields
 
 
 class CheckIn(BaseModel):
@@ -446,7 +450,7 @@ def finish(tx, decision, lang):
 @app.get("/api/bootstrap")
 def bootstrap():
     return {"personas": list(PERSONAS.values()), "recipients": RECIPIENTS, "llm": llm.enabled(),
-            "samples": MSG["samples"], "staff": saqshy.SEED["staff"],
+            "samples": MSG["samples"], "staff": saqshy.SEED["staff"], "behavior": saqshy.SEED.get("behavior", {}),
             "thresholds": {"pause": PAUSE_AT, "high": HIGH_AT}}
 
 
@@ -489,7 +493,9 @@ def check(body: CheckIn):
         "drop_list": rec["account"] in saqshy.DROP_LIST,
         "senders_last_hour": saqshy.SEED["senders_last_hour"].get(rec["id"], 0),
         "loan_minutes_ago": s.loan_minutes_ago, "name_match": names["match"] if names else None,
-        "pasted": s.pasted, "typing_pause_ms": s.typing_pause_ms})
+        "pasted": s.pasted, "typing_pause_ms": s.typing_pause_ms, "typing_median_ms": s.typing_median_ms,
+        "typing_baseline_ms": saqshy.SEED.get("behavior", {}).get(persona["id"], {}).get("typing_ms"),
+        "app_switches": s.app_switches, "phone_flat": s.phone_flat, "corrections": s.corrections})
     risk = pol["score"] / 100
     lvl = level_of(risk)
     tier = pol["tier"]
@@ -497,7 +503,10 @@ def check(body: CheckIn):
           "recipient": rec["account"], "amount": body.amount, "risk": round(risk, 3), "model_risk": round(model_risk, 3),
           "level": lvl, "tier": tier, "signals": pol["signals"], "status": "approved", "paused": tier != "pass" or bool(pol["cooling"]),
           "factors": factors, "transcript": [], "guardian": None, "live": True, "risky": [], "lang": lang,
-          "drop_network": drop["network"] if drop else None, "scam_call": scam_call, "cooling": pol["cooling"]}
+          "drop_network": drop["network"] if drop else None, "scam_call": scam_call, "cooling": pol["cooling"],
+          "behavior": {"typing_median_ms": s.typing_median_ms, "typing_baseline_ms": saqshy.SEED.get("behavior", {}).get(persona["id"], {}).get("typing_ms"),
+                       "typing_pause_ms": s.typing_pause_ms, "app_switches": s.app_switches, "phone_flat": s.phone_flat,
+                       "corrections": s.corrections, "pasted": s.pasted}}
     TX[tid] = tx
     saqshy.audit("Senim", "system", tier, tid, ", ".join(f"{x['key']}+{x['points']}" for x in pol["signals"]) or "no signals")
     resp = {"tx_id": tid, "risk": tx["risk"], "score": pol["score"], "tier": tier, "signals": pol["signals"],

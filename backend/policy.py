@@ -6,7 +6,8 @@ shared/policy_cases.json is checked against both.
 facts: amount, amount_ratio (amount / the client's usual transfer), hour, model_risk (0..1), new_recipient, other_bank,
 new_device, on_call, unknown_caller, scam_call_minutes, remote_access, rooted, vpn, drop_list, senders_last_hour,
 loan_minutes_ago, name_match ("full" | "partial" | "mismatch"), pasted (recipient details pasted from the
-clipboard), typing_pause_ms (longest pause while typing the amount).
+clipboard), typing_pause_ms (longest pause while typing the amount), app_switches (times the app was left during
+the transfer), typing_median_ms / typing_baseline_ms (this typing rhythm vs the client's usual), phone_flat, corrections.
 """
 import json
 from pathlib import Path
@@ -60,6 +61,18 @@ def _hits(f):
         out.append(("pasted_details", S["pasted_details"]["points"], {}))
     if (f.get("typing_pause_ms") or 0) >= S["dictated_typing"]["pause_ms"]:
         out.append(("dictated_typing", S["dictated_typing"]["points"], {}))
+    n = f.get("app_switches") or 0
+    if n > 0:
+        out.append(("app_switch", S["app_switch"]["points"], {"n": n}))
+    med, base = f.get("typing_median_ms"), f.get("typing_baseline_ms")
+    if med and base:
+        k = max(med / base, base / med)
+        if k >= S["typing_rhythm"]["ratio"]:
+            out.append(("typing_rhythm", S["typing_rhythm"]["points"], {"r": f"{k:.1f}"}))
+    if f.get("phone_flat"):
+        out.append(("phone_flat", S["phone_flat"]["points"], {}))
+    if (f.get("corrections") or 0) >= S["corrections"]["count"]:
+        out.append(("corrections", S["corrections"]["points"], {}))
     hour = f.get("hour")
     if hour is not None and S["night"]["from_hour"] <= hour < S["night"]["to_hour"]:
         out.append(("night", S["night"]["points"], {}))

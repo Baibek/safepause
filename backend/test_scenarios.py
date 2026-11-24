@@ -139,3 +139,9 @@ def test_antifraud_center_report_has_no_personal_data():
     assert "Айгүл" not in text and "Сейітова" not in text and "•••• " in rep["transfer"]["recipient_account"]
     assert main.TX[r["tx_id"]]["reported"] == rep["report_id"]
     assert any(e["action"] == "reported" for e in client.get("/api/audit").json())
+
+
+def test_behaviour_against_the_clients_usual():
+    r = transfer(recipient="family", amount=15000, signals={"app_switches": 2, "typing_median_ms": 1200, "phone_flat": True, "corrections": 7}).json()
+    assert {"app_switch", "typing_rhythm", "phone_flat", "corrections"} <= {s["key"] for s in r["signals"]}
+    assert main.TX[r["tx_id"]]["behavior"]["typing_baseline_ms"] == 420

@@ -31,6 +31,13 @@ function hits(f) {
   if (f.name_match === "partial") add("name_partial", S.name_partial.points);
   if (f.pasted) add("pasted_details", S.pasted_details.points);
   if ((f.typing_pause_ms || 0) >= S.dictated_typing.pause_ms) add("dictated_typing", S.dictated_typing.points);
+  if ((f.app_switches || 0) > 0) add("app_switch", S.app_switch.points, { n: f.app_switches });
+  if (f.typing_median_ms && f.typing_baseline_ms) {
+    const k = Math.max(f.typing_median_ms / f.typing_baseline_ms, f.typing_baseline_ms / f.typing_median_ms);
+    if (k >= S.typing_rhythm.ratio) add("typing_rhythm", S.typing_rhythm.points, { r: k.toFixed(1) });
+  }
+  if (f.phone_flat) add("phone_flat", S.phone_flat.points);
+  if ((f.corrections || 0) >= S.corrections.count) add("corrections", S.corrections.points);
   if (f.hour != null && f.hour >= S.night.from_hour && f.hour < S.night.to_hour) add("night", S.night.points);
   if (f.vpn) add("vpn", S.vpn.points);
   return out;

@@ -55,6 +55,12 @@
   {"name": "short typing pauses are normal",
    "facts": {"amount": 40000, "amount_ratio": 1, "hour": 12, "typing_pause_ms": 900},
    "expect": {"score": 0, "tier": "pass", "signals": [], "cooling": null}},
+  {"name": "leaving the app mid-transfer, unusual rhythm, phone on the table, many corrections",
+   "facts": {"amount": 40000, "amount_ratio": 1, "hour": 12, "app_switches": 2, "typing_median_ms": 1100, "typing_baseline_ms": 400, "phone_flat": true, "corrections": 7},
+   "expect": {"score": 35, "tier": "warn", "signals": ["app_switch", "typing_rhythm", "phone_flat", "corrections"], "cooling": null}},
+  {"name": "rhythm close to the client's own is normal",
+   "facts": {"amount": 40000, "amount_ratio": 1, "hour": 12, "typing_median_ms": 500, "typing_baseline_ms": 400, "corrections": 2},
+   "expect": {"score": 0, "tier": "pass", "signals": [], "cooling": null}},
   {"name": "device signals add up",
    "facts": {"amount": 10000, "amount_ratio": 1, "hour": 3, "rooted": true, "vpn": true},
    "expect": {"score": 25, "tier": "pass", "signals": ["rooted", "night", "vpn"], "cooling": null}}

@@ -171,3 +171,11 @@ test("antifraud center report has no personal data", async () => {
   const text = JSON.stringify(rep);
   assert.ok(rep.report_id.startsWith("AFC-") && rep.risk.score >= 80 && !text.includes("Айгүл") && !text.includes("Сейітова"));
 });
+
+test("behaviour v2: leaving the app, rhythm against the client's usual, phone on the table", async () => {
+  const r = await transfer({ persona: "aigul", recipient_id: "family", amount: 15000,
+    signals: { app_switches: 2, typing_median_ms: 1200, phone_flat: true, corrections: 7 } });
+  const keys = r.signals.map((x) => x.key);
+  assert.ok(["app_switch", "typing_rhythm", "phone_flat", "corrections"].every((k) => keys.includes(k)));
+  assert.equal((await ok(`/api/transfer/${r.tx_id}`)).behavior.typing_baseline_ms, 420);
+});

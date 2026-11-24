@@ -149,5 +149,13 @@
    "name": "Мария Ким",
    "id": "BK-3302"
   }
- ]
+ ],
+ "behavior": {
+  "aigul": {
+   "typing_ms": 420
+  },
+  "daniyar": {
+   "typing_ms": 170
+  }
+ }
 }

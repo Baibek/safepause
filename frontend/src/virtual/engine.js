@@ -222,7 +222,7 @@ async function askImage(prompt, blob) {
 const routes = {
   async "/api/bootstrap"() {
     await Promise.race([samplePromise, new Promise((r) => setTimeout(r, 1200))]);
-    return { personas, recipients, llm: llmOn(), thresholds, samples: rulesDoc.samples, staff: S.SEED.staff, virtual: true };
+    return { personas, recipients, llm: llmOn(), thresholds, samples: rulesDoc.samples, staff: S.SEED.staff, behavior: S.SEED.behavior || {}, virtual: true };
   },
 
   async "/api/transfer/check"(b) {
@@ -257,12 +257,16 @@ const routes = {
       unknown_caller: Boolean(s.unknown_caller), scam_call_minutes: s.scam_call_minutes ?? null, remote_access: Boolean(s.remote_app),
       rooted: Boolean(s.rooted), vpn: Boolean(s.vpn), drop_list: Boolean(S.DROP_LIST[rec.account]),
       senders_last_hour: S.SEED.senders_last_hour[rec.id] || 0, loan_minutes_ago: s.loan_minutes_ago ?? null,
-      name_match: names ? names.match : null, pasted: Boolean(s.pasted), typing_pause_ms: s.typing_pause_ms ?? null });
+      name_match: names ? names.match : null, pasted: Boolean(s.pasted), typing_pause_ms: s.typing_pause_ms ?? null,
+      typing_median_ms: s.typing_median_ms ?? null, typing_baseline_ms: S.SEED.behavior?.[persona.id]?.typing_ms ?? null,
+      app_switches: s.app_switches || 0, phone_flat: Boolean(s.phone_flat), corrections: s.corrections || 0 });
     const risk = pol.score / 100, lvl = levelOf(risk), tier = pol.tier;
     const tx = { id, time: S.nowIso(), client: persona.name, age: persona.age, persona: persona.id, recipient: rec.account, amount: b.amount,
       risk, model_risk: Math.round(modelRisk * 1000) / 1000, level: lvl, tier, signals: pol.signals, status: "approved",
       paused: tier !== "pass" || Boolean(pol.cooling), factors, transcript: [], guardian: null, live: true, risky: [], lang,
-      drop_network: drop ? drop.network : null, scam_call: scamCall, cooling: pol.cooling };
+      drop_network: drop ? drop.network : null, scam_call: scamCall, cooling: pol.cooling,
+      behavior: { typing_median_ms: s.typing_median_ms ?? null, typing_baseline_ms: S.SEED.behavior?.[persona.id]?.typing_ms ?? null,
+        typing_pause_ms: s.typing_pause_ms ?? null, app_switches: s.app_switches || 0, phone_flat: Boolean(s.phone_flat), corrections: s.corrections || 0, pasted: Boolean(s.pasted) } };
     TX.set(id, tx);
     S.audit("Senim", "system", tier, id, pol.signals.map((x) => `${x.key}+${x.points}`).join(", ") || "no signals");
     const resp = { tx_id: id, risk, score: pol.score, tier, signals: pol.signals, level: lvl, factors, action: "approve", name_check: names };
