@@ -4,7 +4,7 @@ import { Icon } from "./PhoneFrame.jsx";
 
 const reduceMotion = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 const hhmm = (iso) => (iso || "").slice(11, 16);
-const statusTone = { approved: "ok", delayed: "warn", cancelled: "bad", in_dialog: "warn" };
+const statusTone = { approved: "ok", delayed: "warn", cancelled: "bad", in_dialog: "warn", verifying: "warn", awaiting_trusted: "warn", awaiting_analyst: "warn", afc_hold: "bad" };
 
 /** The signals worth showing a client: what raised the risk, social-engineering signs first, no "1x your usual" noise. */
 export function tellingFactors(factors = []) {

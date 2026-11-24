@@ -184,3 +184,10 @@ test("graph flags droppers by itself", async () => {
   const auto = (await ok("/api/dashboard")).drop_list.filter((d) => d.auto);
   assert.ok(auto.some((d) => d.account.endsWith("4471")) && auto.every((d) => d.fan_in >= 3));
 });
+
+test("report holds an unsent transfer for business days", async () => {
+  const r = await transfer({ signals: { on_call: true, unknown_caller: true } });
+  const rep = await ok("/api/analyst/report", { tx_id: r.tx_id });
+  assert.equal(rep.hold.business_days, 5);
+  assert.equal((await ok(`/api/transfer/${r.tx_id}`)).status, "afc_hold");
+});

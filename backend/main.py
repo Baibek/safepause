@@ -927,7 +927,7 @@ def recipient_check(body: NameIn):
 @app.post("/api/analyst/decide")
 def analyst_decide(body: DecideIn):
     tx = TX.get(body.tx_id)
-    if not tx or tx["status"] not in ("awaiting_analyst", "awaiting_trusted", "in_dialog", "delayed", "verifying"):
+    if not tx or tx["status"] not in ("awaiting_analyst", "awaiting_trusted", "in_dialog", "delayed", "verifying", "afc_hold"):
         raise HTTPException(400, "this transfer is not waiting for a decision")
     if body.action == "to_trusted":
         g = notify_guardian(tx, PERSONAS[tx["persona"]], approval=True) if tx.get("persona") else None
@@ -950,6 +950,15 @@ class ReportIn(BaseModel):
     analyst: str = "Аналитик"
 
 
+def add_business_days(start, n):
+    d = start
+    while n > 0:
+        d += timedelta(days=1)
+        if d.weekday() < 5:
+            n -= 1
+    return d
+
+
 @app.post("/api/analyst/report")
 def analyst_report(body: ReportIn):
     """A case report for the National Bank's Antifraud Center. Demo format: the real schema is agreed with the
@@ -970,6 +979,12 @@ def analyst_report(body: ReportIn):
         "requested_action": "review and hold the recipient account",
     }
     tx["reported"] = rid
+    days = policy.POLICY["afc"]["hold_business_days"]
+    if tx["status"] not in ("approved",):              # not sent yet: hold it while the Center reviews the case
+        tx["status"] = "afc_hold"
+        tx["hold_until"] = add_business_days(saqshy.now(), days).date().isoformat()
+        report["hold"] = {"business_days": days, "until": tx["hold_until"]}
+        saqshy.audit("Senim", "system", "afc_hold", tx["id"], f"{days} business days, until {tx['hold_until']}")
     saqshy.audit(body.analyst, "analyst", "reported", tx["id"], rid)
     return report
 

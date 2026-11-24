@@ -158,3 +158,19 @@ def test_many_senders_in_the_last_hour_flag_the_account_live(monkeypatch):
     account = next(x for x in main.RECIPIENTS if x["id"] == "new_clean")["account"]
     entry = main.saqshy.DROP_LIST[account]
     assert entry["auto"] and entry["source"] == "live" and any(s["key"] == "drop_list" for s in r["signals"])
+
+
+def test_report_holds_an_unsent_transfer_for_business_days():
+    r = transfer(signals={"on_call": True, "unknown_caller": True}).json()
+    rep = client.post("/api/analyst/report", json={"tx_id": r["tx_id"]}).json()
+    assert rep["hold"]["business_days"] == 5
+    tx = main.TX[r["tx_id"]]
+    assert tx["status"] == "afc_hold"
+    start = main.saqshy.now().date()
+    until = main.datetime.fromisoformat(tx["hold_until"]).date()
+    assert 7 <= (until - start).days <= 9 and until.weekday() < 5
+
+
+def test_business_days_skip_weekends():
+    friday = main.datetime(2026, 11, 27, 12, tzinfo=main.ALMATY)
+    assert main.add_business_days(friday, 5).date().isoformat() == "2026-12-04"

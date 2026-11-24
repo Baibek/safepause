@@ -489,7 +489,7 @@ const routes = {
   },
   async "/api/analyst/decide"(b) {
     const tx = TX.get(b.tx_id);
-    if (!tx || !["awaiting_analyst", "awaiting_trusted", "in_dialog", "delayed", "verifying"].includes(tx.status)) throw fail(400, "this transfer is not waiting for a decision");
+    if (!tx || !["awaiting_analyst", "awaiting_trusted", "in_dialog", "delayed", "verifying", "afc_hold"].includes(tx.status)) throw fail(400, "this transfer is not waiting for a decision");
     if (b.action === "to_trusted") {
       const persona = personas.find((p) => p.id === tx.persona);
       if (!persona || !notifyGuardian(tx, persona, true)) throw fail(400, "the client has no active trusted contact");
@@ -517,6 +517,14 @@ const routes = {
       requested_action: "review and hold the recipient account",
     };
     tx.reported = rid;
+    const days = POLICY.afc.hold_business_days;
+    if (tx.status !== "approved") {                        // not sent yet: hold it while the Center reviews the case
+      const d = new Date(S.now()); let n = days;
+      while (n > 0) { d.setDate(d.getDate() + 1); if (d.getDay() !== 0 && d.getDay() !== 6) n--; }
+      tx.status = "afc_hold"; tx.hold_until = d.toISOString().slice(0, 10);
+      report.hold = { business_days: days, until: tx.hold_until };
+      S.audit("Senim", "system", "afc_hold", tx.id, `${days} business days, until ${tx.hold_until}`);
+    }
     S.audit(b.analyst || "Аналитик", "analyst", "reported", tx.id, rid);
     return report;
   },

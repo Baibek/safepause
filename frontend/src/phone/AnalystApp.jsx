@@ -8,7 +8,7 @@ import { Icon } from "./PhoneFrame.jsx";
 export const ROLE_COLOR = { drop: "#FF5A4E", cashout: "#FF8A3D", victim: "#F4C44E", normal: "#5B6B93" };
 const hhmm = (iso) => (iso || "").slice(11, 16);
 const pct = (x) => Math.round(x * 100);
-const tone = { approved: "ok", delayed: "warn", cancelled: "bad", in_dialog: "warn" };
+const tone = { approved: "ok", delayed: "warn", cancelled: "bad", in_dialog: "warn", verifying: "warn", awaiting_trusted: "warn", awaiting_analyst: "warn", afc_hold: "bad" };
 
 function RiskMeter({ risk, level }) {
   return <span className={"an-meter " + level} aria-label={`${pct(risk)}%`}><i style={{ width: `${Math.max(pct(risk), 3)}%` }} /></span>;
@@ -89,7 +89,7 @@ function Queue({ dash, t, A, filter, setFilter, onOpen }) {
   );
 }
 
-const DECIDABLE = ["awaiting_analyst", "awaiting_trusted", "in_dialog", "delayed", "verifying"];
+const DECIDABLE = ["awaiting_analyst", "awaiting_trusted", "in_dialog", "delayed", "verifying", "afc_hold"];
 
 function ReportSheet({ report, A, onClose }) {
   const url = React.useMemo(() => URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: "application/json" })), [report]);
@@ -159,7 +159,7 @@ function Detail({ tx, lang, t, A, onBack, onDecide, onDrop, dropList, notice, on
         </div>
       )}
       {notice && <p className="an-note" role="status">{notice}</p>}
-      {tx.reported ? <p className="an-flag soft">{A.reported(tx.reported)}</p>
+      {tx.reported ? <p className="an-flag soft">{A.reported(tx.reported)}{tx.hold_until ? ` · ${A.holdUntil(tx.hold_until)}` : ""}</p>
         : <button className="an-report-btn" onClick={async () => setReport(await onReport(tx.id))}>{A.report}</button>}
       {report && <ReportSheet report={report} A={A} onClose={() => setReport(null)} />}
       {dropList.includes(tx.recipient)

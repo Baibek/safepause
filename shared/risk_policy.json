@@ -14,6 +14,7 @@
   "loan_new_device_minutes": 1440
  },
  "trusted_timeout_hours": 24,
+ "afc": {"_doc": "After a report to the National Bank's Antifraud Center a transfer not yet sent is held for this many business days (weekends skipped; public holidays not yet). Check the number against the current NBRK rules before production.", "hold_business_days": 5},
  "auto_drop": {"_doc": "The graph marks an account as a dropper by itself: money from this many people, and it leaves within this many minutes.", "senders": 3, "max_hold_min": 40},
  "signals": {
   "model": {"weight": 40,
