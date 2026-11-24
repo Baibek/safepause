@@ -531,3 +531,13 @@
 .vf-sign dl { margin: 0; display: grid; gap: 4px; } .vf-sign dl div { display: flex; justify-content: space-between; gap: 10px; font-size: 13.5px; }
 .vf-sign dt { color: var(--pn-mute); } .vf-sign dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
 .vf-err { color: var(--pn-red); font-size: 12.5px; }
+.shot-btn { position: relative; display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; font: 500 14px var(--pn-font); color: var(--pn-blue); padding: 8px 12px; border-radius: 12px; background: var(--pn-blue-soft); cursor: pointer; }
+.shot-btn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.shot-btn:focus-within { outline: 2px solid var(--pn-blue); outline-offset: 2px; }
+.shot-preview { max-height: 160px; align-self: flex-start; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--pn-line); }
+.shot-text { margin: 0; font-size: 13px; color: var(--pn-mute); line-height: 1.4; }
+.found ul { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.found li { display: flex; align-items: center; gap: 8px; background: #fff; border-radius: 12px; padding: 8px 10px; box-shadow: inset 0 0 0 1px var(--pn-line); font-size: 13.5px; }
+.found li span { color: var(--pn-mute); font-size: 12px; min-width: 56px; } .found li b { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.found li em { margin-left: auto; font-style: normal; font-size: 12px; font-weight: 700; }
+.found li.bad { background: var(--pn-red-soft); } .found li.bad em { color: var(--pn-red); } .found li.ok em { color: var(--pn-green); }

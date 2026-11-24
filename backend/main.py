@@ -114,17 +114,59 @@ T = {
 MSG = json.loads((HERE.parent / "shared" / "message_rules.json").read_text())
 
 
+URL_RE = re.compile(r"(?:https?://|www\.)([a-z0-9.-]+)|\b((?:[a-z0-9-]+\.)+(?:kz|top|xyz|click|site|online|info|com|ru|net|org|me|io|shop))\b", re.I)
+IBAN_RE = re.compile(r"\bKZ\d{2}(?:[ ]?[A-Z0-9]){14,18}\b", re.I)
+PHONE_RE = re.compile(r"(?:\+7|\b8)[\s(-]*7\d{2}[\s)-]*\d{3}[\s-]*\d{2}[\s-]*\d{2}\b")
+CARD_RE = re.compile(r"\b(?:\d[ -]?){15}\d\b")
+
+
+def found_in(text):
+    """Links (and whether they fake a known brand) and requisites (masked; whether on the dropper list) in a text."""
+    links, seen = [], set()
+    for m in URL_RE.finditer(text):
+        d = (m.group(1) or m.group(2) or "").lower().strip(".").removeprefix("www.")
+        if not d or d in seen:
+            continue
+        seen.add(d)
+        brand = next((b for b in MSG["brands"] if b["token"] in d), None)
+        fake = bool(brand) and not any(d == o or d.endswith("." + o) for o in brand["official"])
+        links.append({"domain": d, "brand": brand["token"] if brand else None, "fake": fake})
+    reqs, rest = [], text
+    known = set(saqshy.DROP_LIST) | set(DROP)
+    for m in IBAN_RE.finditer(text):
+        iban = re.sub(r"\s", "", m.group()).upper()
+        masked = f"{iban[:4]} •••• {iban[-4:]}"
+        reqs.append({"kind": "iban", "value": masked, "drop": masked in known})
+        rest = rest.replace(m.group(), " ")
+    for m in PHONE_RE.finditer(rest):
+        digits = re.sub(r"\D", "", m.group())
+        reqs.append({"kind": "phone", "value": f"+7 7•• ••• •• {digits[-2:]}", "drop": False})
+        rest = rest.replace(m.group(), " ")
+    for m in CARD_RE.finditer(rest):
+        digits = re.sub(r"\D", "", m.group())
+        reqs.append({"kind": "card", "value": f"{digits[:4]} •••• •••• {digits[-4:]}", "drop": False})
+    return {"links": links, "requisites": reqs}
+
+
 def message_rules(text, lang):
-    """Keyword heuristics: the fallback when no LLM is available and a floor under the LLM verdict."""
-    import re
-    hits = [r for r in MSG["rules"] if re.search(r["re"], text, re.I)]
+    """Keyword heuristics plus fake brand domains and dropper accounts: the fallback when no LLM is available and a
+    floor under the LLM verdict."""
+    hits = [(r["w"], r[lang]) for r in MSG["rules"] if re.search(r["re"], text, re.I)]
+    found = found_in(text)
+    F = MSG["found_rules"]
+    for link in found["links"]:
+        if link["fake"]:
+            hits.insert(0, (F["fake_domain"]["w"], F["fake_domain"][lang].replace("{d}", link["domain"])))
+    for req in found["requisites"]:
+        if req["drop"]:
+            hits.insert(0, (F["drop_account"]["w"], F["drop_account"][lang].replace("{a}", req["value"])))
     score = 1.0
-    for r in hits:
-        score *= 1 - r["w"]
+    for w, _ in hits:
+        score *= 1 - w
     score = 1 - score
     verdict = "scam" if score >= 0.6 else "suspicious" if score >= 0.3 else "safe"
-    return {"verdict": verdict, "score": round(score, 2), "reasons": [r[lang] for r in hits[:3]],
-            "advice": MSG["advice"][verdict][lang], "source": "rules"}
+    return {"verdict": verdict, "score": round(score, 2), "reasons": [t for _, t in hits[:4]],
+            "advice": MSG["advice"][verdict][lang], "source": "rules", "found": found}
 
 
 TX: dict[str, dict] = {}
@@ -240,8 +282,9 @@ class AnswerIn(BaseModel):
 
 
 class MessageIn(BaseModel):
-    text: str
+    text: str = ""
     lang: str = "kk"
+    image: Optional[str] = None   # a screenshot as a data URL (png / jpeg / webp / gif, up to 5 MB)
 
 
 class GuardianIn(BaseModel):
@@ -488,14 +531,29 @@ def verify_respond(body: VerifyIn):
                                       "guardian_notified": bool(g), "verified": body.answer == "self"}}
 
 
+NO_VISION = {"kk": "Скриншотты оқу үшін ЖИ қосылмаған. Хабарламаның мәтінін көшіріп қойыңыз.",
+             "ru": "Чтобы прочитать скриншот, нужен ИИ, а он не подключён. Скопируйте и вставьте текст сообщения."}
+
+
 @app.post("/api/message/check")
 def message_check(body: MessageIn):
     lang = body.lang if body.lang in ("kk", "ru") else "kk"
     text = body.text.strip()
-    if not text:
+    image = None
+    if body.image:
+        m = re.match(r"data:(image/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/=]+)$", body.image)
+        if not m or len(m.group(2)) > 7_000_000:
+            raise HTTPException(400, "a png, jpeg, webp or gif image up to 5 MB is expected")
+        if not llm.enabled_for_images():
+            raise HTTPException(503, NO_VISION[lang])
+        image = (m.group(1), m.group(2))
+    if not text and not image:
         raise HTTPException(400, "empty message")
-    base = message_rules(text, lang)
-    ai = llm.check_message(lang, text)
+    ai = llm.check_message(lang, text, image)
+    if image and not ai:
+        raise HTTPException(503, NO_VISION[lang])
+    # the rules also read what the screenshot says, so a fake domain or a dropper account on it is still caught
+    base = message_rules(" ".join(x for x in (text, ai.get("text", "") if ai else "") if x), lang)
     if not ai:
         return base
     order = ["safe", "suspicious", "scam"]
@@ -503,7 +561,7 @@ def message_check(body: MessageIn):
     verdict = max(ai["verdict"], base["verdict"], key=order.index)
     return {"verdict": verdict, "score": base["score"], "reasons": ai["reasons"] or base["reasons"],
             "advice": ai["advice"] if verdict == ai["verdict"] and ai["advice"] else MSG["advice"][verdict][lang],
-            "source": "llm"}
+            "source": "llm", "found": base["found"], "image_text": ai.get("text", "")}
 
 
 @app.get("/api/guardian/notifications")

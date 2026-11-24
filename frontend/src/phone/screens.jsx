@@ -294,11 +294,18 @@ export function MessagesScreen({ boot, lang, t, P }) {
   const [res, setRes] = useState(null);
   const [checked, setChecked] = useState("");
   const [busy, setBusy] = useState(false);
-  const run = async (value = text) => {
-    if (!value.trim() || busy) return;
+  const [shot, setShot] = useState(null);           // a screenshot as a data URL
+  const run = async (value = text, image = shot) => {
+    if ((!value.trim() && !image) || busy) return;
     setBusy(true); setRes(null); setChecked(value);
-    try { setRes(await api("/api/message/check", { text: value, lang })); } catch (e) { setRes({ error: String(e.message) }); }
+    try { setRes(await api("/api/message/check", { text: value, lang, ...(image ? { image } : {}) })); } catch (e) { setRes({ error: String(e.message) }); }
     setBusy(false);
+  };
+  const pickShot = (file) => {
+    if (!file) return;
+    const r = new FileReader();
+    r.onload = () => { setShot(r.result); run(text, r.result); };
+    r.readAsDataURL(file);
   };
   const parts = checked.split(URL_RE);
   return (
@@ -308,8 +315,13 @@ export function MessagesScreen({ boot, lang, t, P }) {
       <textarea id="msg-text" className="field-x" rows="4" value={text} placeholder={t.msgPlaceholder}
         onChange={(e) => { setText(e.target.value); setRes(null); setChecked(""); }} />
       <div className="chips-x">
-        {boot.samples.map((s, i) => <button key={i} onClick={() => { setText(s[lang]); run(s[lang]); }}>{t.msgSample[i]}</button>)}
+        {boot.samples.map((s, i) => <button key={i} onClick={() => { setShot(null); setText(s[lang]); run(s[lang], null); }}>{t.msgSample[i] || `#${i + 1}`}</button>)}
       </div>
+      <label className="shot-btn">
+        <Icon name="card" size={18} stroke={2} />{t.msgShot}
+        <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(e) => pickShot(e.target.files?.[0])} />
+      </label>
+      {shot && <img className="shot-preview" src={shot} alt="" />}
       {checked && (
         <div className="bubble them big">
           {parts.map((p, i) => (i % 2 ? <mark key={i} title={P.msgLinks}>{p}</mark> : <span key={i}>{p}</span>))}
@@ -324,8 +336,20 @@ export function MessagesScreen({ boot, lang, t, P }) {
           <small>{t.msgBy[res.source]}</small>
         </section>
       )}
+      {res && !res.error && res.image_text && <p className="shot-text"><b>{t.msgShotText}:</b> {res.image_text}</p>}
+      {res && !res.error && res.found && (res.found.links.length > 0 || res.found.requisites.length > 0) && (
+        <section className="found">
+          <h3 className="sec-title">{t.msgFound}</h3>
+          <ul>
+            {res.found.links.map((l) => <li key={l.domain} className={l.fake ? "bad" : l.brand ? "ok" : ""}><span>{t.msgKind.link}</span><b>{l.domain}</b>
+              {l.brand && <em>{l.fake ? t.msgFake : t.msgOfficial}</em>}</li>)}
+            {res.found.requisites.map((r, i) => <li key={i} className={r.drop ? "bad" : ""}><span>{t.msgKind[r.kind]}</span><b>{r.value}</b>
+              {r.drop && <em>{t.msgOnDrop}</em>}</li>)}
+          </ul>
+        </section>
+      )}
       {res?.error && <p className="error">{res.error}</p>}
-      <div className="cta-stack"><button className="btn primary-blue" disabled={!text.trim() || busy} onClick={() => run()}>{t.msgCheck}</button></div>
+      <div className="cta-stack"><button className="btn primary-blue" disabled={(!text.trim() && !shot) || busy} onClick={() => run()}>{t.msgCheck}</button></div>
     </div>
   );
 }

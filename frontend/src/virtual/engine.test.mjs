@@ -152,3 +152,15 @@ test("passkey: same canonical challenge as the server", async () => {
   const hex = [...(await txChallenge(d))].map((x) => x.toString(16).padStart(2, "0")).join("");
   assert.equal(hex, "478208f66626969150a9a3e9eef73cfb21478eb5211541a4256e37b78ed98286");
 });
+
+test("check assistant: fake brand domain, dropper account and masked requisites", async () => {
+  const olx = await ok("/api/message/check", { lang: "ru", text: "Для получения денег перейдите по ссылке и введите номер карты и срок действия: https://olx-delivery.kz-pay.top/receive" });
+  assert.equal(olx.verdict, "scam"); assert.ok(olx.found.links.some((l) => l.fake && l.brand === "olx"));
+  assert.ok(!(await ok("/api/message/check", { lang: "ru", text: "Подробности на https://kaspi.kz/shop" })).found.links.some((l) => l.fake));
+  const boot = await ok("/api/bootstrap");
+  await ok("/api/analyst/droplist", { account: boot.recipients.find((x) => x.id === "new_clean").account, reason: "t" });
+  const r = await ok("/api/message/check", { lang: "ru", text: "Переведите на счёт KZ31 1234 5678 9012 2208 срочно, или карта 4405 1234 5678 4471" });
+  const iban = r.found.requisites.find((x) => x.kind === "iban"), card = r.found.requisites.find((x) => x.kind === "card");
+  assert.ok(iban.drop && r.verdict === "scam" && !iban.value.includes("1234") && card.value.endsWith("4471") && !card.value.includes("1234"));
+  assert.equal((await err("/api/message/check", { lang: "kk", image: "data:image/png;base64,iVBORw0KGgo=" })).status, 503);
+});
