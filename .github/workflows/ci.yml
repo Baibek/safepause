@@ -15,5 +15,5 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: "22" }
-      - run: node --test frontend/src/call/detector.test.mjs frontend/src/transfer/words.test.mjs frontend/src/virtual/policy.test.mjs
+      - run: node --test frontend/src/call/detector.test.mjs frontend/src/transfer/words.test.mjs frontend/src/virtual/policy.test.mjs frontend/src/virtual/federated.test.mjs
       - run: cd frontend && npm ci && npm run test:engine && npm run build && npm run build:virtual

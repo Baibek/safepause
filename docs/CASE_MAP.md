@@ -13,6 +13,9 @@ FINTECH CASE, Банк ЦентрКредит: «Инновации в банк�
 | Киберқауіпсіздік: құрылғы | Android RASP: root, эмулятор, қашықтан басқару, overlay | `android/app/src/main/java/kz/safepause/guard/rasp/` |
 | Киберқауіпсіздік: сервер | Рөлдер, CSRF, rate limit, логта маскалау | `shared/access_policy.json`, `backend/security.py` |
 | Ұлттық жүйемен байланыс | Антифрод-орталыққа есеп (демо-формат, жеке деректерсіз) | `POST /api/analyst/report` |
+| Мінез-құлық биометриясы | Теру ырғағы клиенттің әдеттегісімен салыстырылады, қосымшадан шығу, телефонның бұрышы, түзетулер | `frontend/src/transfer/TransferSection.jsx`, `shared/risk_policy.json` |
+| Кіріс граф-аналитикасы | Көп жіберуші + жылдам шығару → граф дропперді автоматты белгілейді | `backend/saqshy.py` (`flag_from_graph`), `auto_drop` |
+| Банкаралық федеративтік оқыту | FedAvg демо: деректер банктен шықпайды, тек салмақтар | `frontend/src/virtual/federated.js` |
 | Деректерді қорғау | Дыбыс пен әңгіме мәтіні құрылғыдан шықпайды; банкке тек `scam_call_minutes` саны барады | `android/.../sdk/SafePauseSdk.kt`, `docs/BCC_INTEGRATION.md` |
 | Банк үшін жаңа сервис | Антифрод аналитигінің қосымшасы: кезек, түсіндірме, дроп-желі картасы | `frontend/src/phone/AnalystApp.jsx`, `backend/graph.py` |
 | Енгізу | Мобильді қосымшаға модуль + аударым API-ына бір өріс; API келісімшарты мен пилот жоспары | `docs/BCC_INTEGRATION.md` |

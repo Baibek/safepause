@@ -3,6 +3,7 @@ import { api, fmt } from "./i18n.js";
 import PhoneFrame, { TabBar } from "./phone/PhoneFrame.jsx";
 import AnalystApp, { ROLE_COLOR } from "./phone/AnalystApp.jsx";
 import { AN } from "./phone/analystStrings.js";
+import { runFederated, FALSE_PAUSE } from "./virtual/federated.js";
 
 const PAGE = {
   kk: {
@@ -18,6 +19,12 @@ const PAGE = {
     inCall: (n, id, c) => `${n} (ID ${id}) қазір ${c} клиентпен сөйлесіп тұр`,
     atm: "Банкомат: сейфті биометриямен ашу", atmDone: (a) => `Сейф ашылды, ${a} ₸ қолжетімді болды`, atmEmpty: "Сейф бос",
     clock: "Уақытты 24 сағатқа жылжыту", clockDone: "Уақыт жылжыды: жауап бермеген сенімді адамның сұраулары жабылды",
+    fed: "Банкаралық федеративтік оқыту", fedLead: "Үш банктің әрқайсысы алаяқтықтың бір түрін ғана көреді. Олар клиент деректерін алмаспай-ақ ортақ модель үйретеді: әр банк моделін өзінде оқытады, ал үйлестірушіге тек модель салмақтары жіберіледі (FedAvg).",
+    fedRun: "Оқытуды бастау (5 раунд)", fedModel: "Модель", fedSchemes: { call: "Қоңырау", remote: "Қашықтан басқару", drop: "Дроп-шот" },
+    fedLocal: (b) => `${b}-банк, тек өз деректері`, fedGlobal: "Ортақ модель",
+    fedCaption: (p) => `Ұсталған алаяқтық үлесі, әр модель адал аударымдардың ${p}%-ын ғана кідіртеді. AUC — жалпы сапа.`,
+    fedSent: (m, d, n) => `Банктерден жіберілгені: ${m} хабар, әрқайсысында ${d} сан. ${n} клиент жазбасы банктен шыққан жоқ.`,
+    fedNote: "Деректер жасанды, есептеу браузерде жүреді. Нақты пилотта салмақтар шифрланып біріктіріледі (secure aggregation), дифференциалды құпиялылық қосылады.",
   },
   ru: {
     title: "Что видит аналитик",
@@ -32,8 +39,41 @@ const PAGE = {
     inCall: (n, id, c) => `${n} (ID ${id}) сейчас разговаривает с клиентом ${c}`,
     atm: "Банкомат: открыть сейф по биометрии", atmDone: (a) => `Сейф открыт, доступно ${a} ₸`, atmEmpty: "Сейф пуст",
     clock: "Сдвинуть время на 24 часа", clockDone: "Время сдвинуто: неотвеченные запросы доверенному лицу закрыты",
+    fed: "Федеративное обучение между банками", fedLead: "Каждый из трёх банков видит только одну схему мошенничества. Они обучают общую модель, не обмениваясь данными клиентов: каждый банк учит модель у себя, а координатору уходят только веса модели (FedAvg).",
+    fedRun: "Запустить обучение (5 раундов)", fedModel: "Модель", fedSchemes: { call: "Звонок", remote: "Удалённый доступ", drop: "Дроп-счёт" },
+    fedLocal: (b) => `Банк ${b}, только свои данные`, fedGlobal: "Общая модель",
+    fedCaption: (p) => `Доля пойманного мошенничества, когда модель задерживает только ${p}% честных переводов. AUC — общее качество.`,
+    fedSent: (m, d, n) => `Из банков отправлено: ${m} сообщений по ${d} чисел. ${n} записей клиентов не покинули банки.`,
+    fedNote: "Данные синтетические, расчёт идёт в браузере. В настоящем пилоте веса объединяются в зашифрованном виде (secure aggregation) и добавляется дифференциальная приватность.",
   },
 };
+
+function Federated({ G }) {
+  const [r, setR] = useState(null);
+  const pct = (v) => `${Math.round(v * 100)}%`;
+  const cell = (v) => <td className={"num " + (v >= 0.8 ? "good" : v < 0.5 ? "bad" : "")}>{pct(v)}</td>;
+  return (
+    <div className="panel fed">
+      <h2>{G.fed}</h2>
+      <p className="hint">{G.fedLead}</p>
+      <button className="primary" onClick={() => setR(runFederated())}>{G.fedRun}</button>
+      {r && (
+        <>
+          <table className="fed-table">
+            <thead><tr><th>{G.fedModel}</th>{Object.values(G.fedSchemes).map((s) => <th key={s} className="num">{s}</th>)}<th className="num">AUC</th></tr></thead>
+            <tbody>
+              {r.local.map((l) => <tr key={l.name}><td>{G.fedLocal(l.name)}</td>{Object.keys(G.fedSchemes).map((k) => <React.Fragment key={k}>{cell(l.caught[k])}</React.Fragment>)}<td className="num">{l.auc.toFixed(2)}</td></tr>)}
+              <tr className="fed-global"><td>{G.fedGlobal}</td>{Object.keys(G.fedSchemes).map((k) => <React.Fragment key={k}>{cell(r.federated.caught[k])}</React.Fragment>)}<td className="num">{r.federated.auc.toFixed(2)}</td></tr>
+            </tbody>
+          </table>
+          <p className="hint small">{G.fedCaption(Math.round(FALSE_PAUSE * 100))}</p>
+          <p className="hint">{G.fedSent(r.sent.length, r.weightsPerMessage, r.records)}</p>
+          <p className="hint small">{G.fedNote}</p>
+        </>
+      )}
+    </div>
+  );
+}
 
 function StaffConsole({ boot, G }) {
   const personas = boot?.personas || [];
@@ -126,6 +166,7 @@ export default function Analyst({ lang, t, boot }) {
 
       <aside className="side">
         <StaffConsole boot={boot} G={G} />
+        <Federated G={G} />
         <div className="panel">
           <h2>{G.netTitle}</h2>
           <p className="hint">{G.netLead}</p>
