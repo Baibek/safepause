@@ -2,6 +2,9 @@
 export const AN = {
   kk: {
     tabs: { overview: "Шолу", queue: "Кезек", network: "Желі", audit: "Журнал" },
+    report: "Антифрод-орталыққа есеп жіберу", reported: (id) => `Есеп жіберілді: ${id}`, reportTitle: "Есеп (демо-формат)",
+    reportNote: "Аты-жөні, телефоны және толық шот нөмірлері есепке кірмейді. Нақты форматы ҰБ Антифрод-орталығымен келісіледі.",
+    download: "JSON жүктеп алу", close: "Жабу",
     signalsTitle: "Саясат сигналдары", modelTitle: "Модельдің түсіндірмесі (SHAP)", score: "Балл",
     decide: { approve: "Өткізу", reject: "Бас тарту", to_trusted: "Сенімді адамға жіберу" }, decided: "Шешім журналға жазылды",
     addDrop: "Дроппер тізіміне қосу", onDrop: "Дроппер тізімінде", dropReason: "Аналитик растады: көп жіберуші, жылдам шығару",
@@ -13,7 +16,7 @@ export const AN = {
       awaiting_analyst: "аналитикті күтуде", approved: "растады", rejected: "бас тартты", approve: "өткізді", reject: "бас тартты", to_trusted: "сенімді адамға жіберді",
       locked: "сейфке салды", unlocked: "сейфті ашты", trusted_invited: "сенімді адамды шақырды", trusted_accepted: "келісім берді",
       trusted_removed: "сенімді адамды алып тастады", call_started: "қоңырау сессиясын ашты", call_ended: "қоңырауды аяқтады",
-      droplist_added: "дроппер тізіміне қосты", verify_self: "банк қоңырауында растады", verify_not_me: "«мен емес» деді", verify_no_answer: "қоңырауға жауап бермеді", passkey_added: "passkey қосты", passkey_signed: "passkey арқылы қол қойды", passkey_failed: "passkey тексеруінен өтпеді" },
+      droplist_added: "дроппер тізіміне қосты", verify_self: "банк қоңырауында растады", verify_not_me: "«мен емес» деді", verify_no_answer: "қоңырауға жауап бермеді", passkey_added: "passkey қосты", passkey_signed: "passkey арқылы қол қойды", passkey_failed: "passkey тексеруінен өтпеді", reported: "Антифрод-орталыққа есеп жіберді" },
     role: { system: "Жүйе", client: "Клиент", trusted: "Сенімді адам", analyst: "Аналитик", staff: "Қызметкер" },
     role: "Антифрод аналитигі",
     headline: (n, sum) => (n ? `Бүгін ${n} аударым тоқтатылды не кейінге қалды. Клиенттерде ${sum} ₸ қалды.` : "Бүгін тоқтатылған аударым әзірге жоқ."),
@@ -43,6 +46,9 @@ export const AN = {
   },
   ru: {
     tabs: { overview: "Обзор", queue: "Очередь", network: "Сеть", audit: "Журнал" },
+    report: "Отправить отчёт в Антифрод-центр", reported: (id) => `Отчёт отправлен: ${id}`, reportTitle: "Отчёт (демо-формат)",
+    reportNote: "Имена, телефоны и полные номера счетов в отчёт не попадают. Настоящий формат согласуется с Антифрод-центром НБ.",
+    download: "Скачать JSON", close: "Закрыть",
     signalsTitle: "Сигналы политики", modelTitle: "Объяснение модели (SHAP)", score: "Балл",
     decide: { approve: "Пропустить", reject: "Отклонить", to_trusted: "Отправить доверенному лицу" }, decided: "Решение записано в журнал",
     addDrop: "Добавить в список дропперов", onDrop: "В списке дропперов", dropReason: "Подтверждено аналитиком: много отправителей, быстрый вывод",
@@ -54,7 +60,7 @@ export const AN = {
       awaiting_analyst: "ждёт аналитика", approved: "подтвердил", rejected: "отклонил", approve: "пропустил", reject: "отклонил", to_trusted: "отправил доверенному лицу",
       locked: "положил в сейф", unlocked: "открыл сейф", trusted_invited: "пригласил доверенное лицо", trusted_accepted: "дал согласие",
       trusted_removed: "удалил доверенное лицо", call_started: "открыл сессию звонка", call_ended: "завершил звонок",
-      droplist_added: "добавил в список дропперов", verify_self: "подтвердил в звонке банка", verify_not_me: "сказал «это не я»", verify_no_answer: "не ответил на звонок", passkey_added: "включил passkey", passkey_signed: "подписал passkey", passkey_failed: "не прошёл проверку passkey" },
+      droplist_added: "добавил в список дропперов", verify_self: "подтвердил в звонке банка", verify_not_me: "сказал «это не я»", verify_no_answer: "не ответил на звонок", passkey_added: "включил passkey", passkey_signed: "подписал passkey", passkey_failed: "не прошёл проверку passkey", reported: "отправил отчёт в Антифрод-центр" },
     role: { system: "Система", client: "Клиент", trusted: "Доверенное лицо", analyst: "Аналитик", staff: "Сотрудник" },
     role: "Аналитик антифрода",
     headline: (n, sum) => (n ? `Сегодня остановлено или отложено переводов: ${n}. У клиентов осталось ${sum} ₸.` : "Сегодня остановленных переводов пока нет."),

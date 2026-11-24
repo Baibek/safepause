@@ -541,3 +541,10 @@
 .found li span { color: var(--pn-mute); font-size: 12px; min-width: 56px; } .found li b { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .found li em { margin-left: auto; font-style: normal; font-size: 12px; font-weight: 700; }
 .found li.bad { background: var(--pn-red-soft); } .found li.bad em { color: var(--pn-red); } .found li.ok em { color: var(--pn-green); }
+.an-report-btn { margin-top: 10px; width: 100%; border: 1px solid var(--an-line); background: transparent; color: #C3D2FF; border-radius: 14px; padding: 10px; font: 500 13px var(--pn-font); cursor: pointer; text-align: left; }
+.an-report { position: sticky; bottom: 0; margin-top: 12px; background: #fff; color: #0F1B3D; border-radius: 20px; padding: 14px; display: grid; gap: 8px; box-shadow: 0 -10px 30px rgba(0,0,0,.35); }
+.an-report header { display: flex; justify-content: space-between; align-items: center; }
+.an-report header button { border: 0; background: #EEF1F7; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; cursor: pointer; }
+.an-report small { color: #66708A; font-size: 12px; line-height: 1.4; }
+.an-report pre { margin: 0; max-height: 220px; overflow: auto; background: #F3F5FA; border-radius: 12px; padding: 10px; font-size: 10.5px; line-height: 1.35; white-space: pre-wrap; overflow-wrap: anywhere; }
+.an-report .btn { text-align: center; text-decoration: none; }

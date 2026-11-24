@@ -96,6 +96,7 @@ export default function Analyst({ lang, t, boot }) {
     catch (e) { setNotice(String(e.message)); }
     load();
   };
+  const report = async (tx_id) => { const r = await api("/api/analyst/report", { tx_id, analyst: "Аналитик" }); load(); return r; };
   const drop = async (account) => { await api("/api/analyst/droplist", { account, reason: A.dropReason, analyst: "Аналитик" }); load(); };
 
   const tabs = [
@@ -118,7 +119,7 @@ export default function Analyst({ lang, t, boot }) {
       <section className="phone-wrap">
         <PhoneFrame tone="light" tabBar={<TabBar tabs={tabs} active={tab} onChange={setTab} />}>
           <div className="analyst-app" key={tab}>
-            <AnalystApp tab={tab} dash={dash} graph={graph} lang={lang} t={t} A={A} audit={audit} onDecide={decide} onDrop={drop} notice={notice} />
+            <AnalystApp tab={tab} dash={dash} graph={graph} lang={lang} t={t} A={A} audit={audit} onDecide={decide} onDrop={drop} notice={notice} onReport={report} />
           </div>
         </PhoneFrame>
       </section>

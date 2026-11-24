@@ -820,6 +820,35 @@ def analyst_decide(body: DecideIn):
     return tx
 
 
+class ReportIn(BaseModel):
+    tx_id: str
+    analyst: str = "Аналитик"
+
+
+@app.post("/api/analyst/report")
+def analyst_report(body: ReportIn):
+    """A case report for the National Bank's Antifraud Center. Demo format: the real schema is agreed with the
+    Center. No names, phone numbers or full account numbers: the client is a one-way hash, accounts stay masked."""
+    tx = TX.get(body.tx_id)
+    if not tx:
+        raise HTTPException(404, "unknown transfer")
+    rid = f"AFC-{saqshy.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
+    report = {
+        "schema": "senim-afc-demo/1", "report_id": rid, "created_at": saqshy.now_iso(), "reporter": body.analyst,
+        "transfer": {"id": tx["id"], "time": tx["time"], "amount": tx["amount"], "currency": "KZT",
+                     "recipient_account": tx["recipient"], "status": tx["status"]},
+        "client": {"ref": webauthn.b64u(webauthn.hashlib.sha256(tx["client"].encode()).digest())[:16], "age": tx.get("age")},
+        "risk": {"score": round(tx["risk"] * 100), "tier": tx.get("tier"), "signals": [
+            {"key": x["key"], "points": x["points"]} for x in tx.get("signals", [])]},
+        "scam_call_detected": bool(tx.get("scam_call")), "recipient_on_dropper_list": tx["recipient"] in saqshy.DROP_LIST,
+        "recipient_network": tx.get("drop_network"), "client_answers": [m["text"] for m in tx["transcript"] if m["from"] == "client"],
+        "requested_action": "review and hold the recipient account",
+    }
+    tx["reported"] = rid
+    saqshy.audit(body.analyst, "analyst", "reported", tx["id"], rid)
+    return report
+
+
 @app.post("/api/analyst/droplist")
 def droplist_add(body: DropIn):
     if not body.account.strip():

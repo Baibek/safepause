@@ -487,6 +487,25 @@ const routes = {
     S.audit(b.analyst || "Аналитик", "analyst", b.action, tx.id, b.reason || "");
     return { ...tx };
   },
+  async "/api/analyst/report"(b) {
+    const tx = TX.get(b.tx_id);
+    if (!tx) throw fail(404, "unknown transfer");
+    const day = S.nowIso().slice(0, 10).replace(/-/g, "");
+    const rid = `AFC-${day}-${uid(6)}`;
+    const ref = WA.b64u(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(tx.client))).slice(0, 16);
+    const report = {
+      schema: "senim-afc-demo/1", report_id: rid, created_at: S.nowIso(), reporter: b.analyst || "Аналитик",
+      transfer: { id: tx.id, time: tx.time, amount: tx.amount, currency: "KZT", recipient_account: tx.recipient, status: tx.status },
+      client: { ref, age: tx.age ?? null },
+      risk: { score: Math.round(tx.risk * 100), tier: tx.tier ?? null, signals: (tx.signals || []).map((x) => ({ key: x.key, points: x.points })) },
+      scam_call_detected: Boolean(tx.scam_call), recipient_on_dropper_list: Boolean(S.DROP_LIST[tx.recipient]),
+      recipient_network: tx.drop_network ?? null, client_answers: tx.transcript.filter((m) => m.from === "client").map((m) => m.text),
+      requested_action: "review and hold the recipient account",
+    };
+    tx.reported = rid;
+    S.audit(b.analyst || "Аналитик", "analyst", "reported", tx.id, rid);
+    return report;
+  },
   async "/api/analyst/droplist"(b) {
     if (!String(b.account || "").trim()) throw fail(400, "account is required");
     S.DROP_LIST[b.account] = { account: b.account, reason: b.reason || "", by: b.analyst || "Аналитик", time: S.nowIso() };

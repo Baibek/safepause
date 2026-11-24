@@ -129,3 +129,13 @@ def test_every_decision_is_in_the_audit_log_without_phone_numbers():
 def test_pasted_details_and_dictated_typing_are_scored():
     r = transfer(persona="daniyar", recipient="family", amount=20000, signals={"pasted": True, "typing_pause_ms": 5000}).json()
     assert {"pasted_details", "dictated_typing"} <= {s["key"] for s in r["signals"]}
+
+
+def test_antifraud_center_report_has_no_personal_data():
+    r = transfer(signals={"on_call": True, "unknown_caller": True}).json()
+    rep = client.post("/api/analyst/report", json={"tx_id": r["tx_id"]}).json()
+    text = str(rep)
+    assert rep["report_id"].startswith("AFC-") and rep["risk"]["score"] >= 80
+    assert "Айгүл" not in text and "Сейітова" not in text and "•••• " in rep["transfer"]["recipient_account"]
+    assert main.TX[r["tx_id"]]["reported"] == rep["report_id"]
+    assert any(e["action"] == "reported" for e in client.get("/api/audit").json())

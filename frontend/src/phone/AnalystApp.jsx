@@ -91,7 +91,21 @@ function Queue({ dash, t, A, filter, setFilter, onOpen }) {
 
 const DECIDABLE = ["awaiting_analyst", "awaiting_trusted", "in_dialog", "delayed", "verifying"];
 
-function Detail({ tx, lang, t, A, onBack, onDecide, onDrop, dropList, notice }) {
+function ReportSheet({ report, A, onClose }) {
+  const url = React.useMemo(() => URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: "application/json" })), [report]);
+  useEffect(() => () => URL.revokeObjectURL(url), [url]);
+  return (
+    <div className="an-report" role="dialog" aria-label={A.reportTitle}>
+      <header><b>{A.reportTitle}</b><button onClick={onClose} aria-label={A.close}><Icon name="close" size={18} stroke={2.2} /></button></header>
+      <small>{A.reportNote}</small>
+      <pre>{JSON.stringify(report, null, 2)}</pre>
+      <a className="btn primary-blue" href={url} download={`${report.report_id}.json`}>{A.download}</a>
+    </div>
+  );
+}
+
+function Detail({ tx, lang, t, A, onBack, onDecide, onDrop, dropList, notice, onReport }) {
+  const [report, setReport] = useState(null);
   const up = tx.factors.filter((f) => f.contribution > 0);
   const down = tx.factors.filter((f) => f.contribution < 0);
   const max = Math.max(...tx.factors.map((f) => Math.abs(f.contribution)), 0.01);
@@ -132,6 +146,9 @@ function Detail({ tx, lang, t, A, onBack, onDecide, onDrop, dropList, notice }) 
         </div>
       )}
       {notice && <p className="an-note" role="status">{notice}</p>}
+      {tx.reported ? <p className="an-flag soft">{A.reported(tx.reported)}</p>
+        : <button className="an-report-btn" onClick={async () => setReport(await onReport(tx.id))}>{A.report}</button>}
+      {report && <ReportSheet report={report} A={A} onClose={() => setReport(null)} />}
       {dropList.includes(tx.recipient)
         ? <p className="an-flag">{A.onDrop}: {tx.recipient}</p>
         : <button className="an-drop" onClick={() => onDrop(tx.recipient)}>{A.addDrop}: {tx.recipient}</button>}
@@ -239,14 +256,14 @@ function Audit({ audit, A }) {
 }
 
 /** The analyst's phone: overview, the live queue with each decision explained, and the drop-network map. */
-export default function AnalystApp({ tab, dash, graph, lang, t, A, audit = [], onDecide, onDrop, notice }) {
+export default function AnalystApp({ tab, dash, graph, lang, t, A, audit = [], onDecide, onDrop, notice, onReport }) {
   const [open, setOpen] = useState(null);
   const [filter, setFilter] = useState("all");
   useEffect(() => setOpen(null), [tab]);
   const tx = useMemo(() => dash?.transactions.find((x) => x.id === open), [dash, open]);
   if (!dash) return null;
   const dropList = (dash?.drop_list || []).map((d) => d.account);
-  if (tx) return <Detail tx={tx} lang={lang} t={t} A={A} onBack={() => setOpen(null)} onDecide={onDecide} onDrop={onDrop} dropList={dropList} notice={notice} />;
+  if (tx) return <Detail tx={tx} lang={lang} t={t} A={A} onBack={() => setOpen(null)} onDecide={onDecide} onDrop={onDrop} dropList={dropList} notice={notice} onReport={onReport} />;
   if (tab === "audit") return <Audit audit={audit} A={A} />;
   if (tab === "queue") return <Queue dash={dash} t={t} A={A} filter={filter} setFilter={setFilter} onOpen={setOpen} />;
   if (tab === "network") return <Network_ graph={graph} t={t} A={A} onDrop={onDrop} dropList={dropList} />;

@@ -164,3 +164,10 @@ test("check assistant: fake brand domain, dropper account and masked requisites"
   assert.ok(iban.drop && r.verdict === "scam" && !iban.value.includes("1234") && card.value.endsWith("4471") && !card.value.includes("1234"));
   assert.equal((await err("/api/message/check", { lang: "kk", image: "data:image/png;base64,iVBORw0KGgo=" })).status, 503);
 });
+
+test("antifraud center report has no personal data", async () => {
+  const r = await transfer({ signals: { on_call: true, unknown_caller: true } });
+  const rep = await ok("/api/analyst/report", { tx_id: r.tx_id });
+  const text = JSON.stringify(rep);
+  assert.ok(rep.report_id.startsWith("AFC-") && rep.risk.score >= 80 && !text.includes("Айгүл") && !text.includes("Сейітова"));
+});
