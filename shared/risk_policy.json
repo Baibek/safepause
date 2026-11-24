@@ -14,6 +14,7 @@
   "loan_new_device_minutes": 1440
  },
  "trusted_timeout_hours": 24,
+ "auto_drop": {"_doc": "The graph marks an account as a dropper by itself: money from this many people, and it leaves within this many minutes.", "senders": 3, "max_hold_min": 40},
  "signals": {
   "model": {"weight": 40,
    "kk": "Модель аударымды әдеттен тыс деп бағалады", "ru": "Модель оценила перевод как необычный"},

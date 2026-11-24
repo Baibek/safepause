@@ -207,7 +207,7 @@ function NetMap({ graph, showAll, onPick }) {
   return <div className="an-map" ref={el} />;
 }
 
-function Network_({ graph, t, A, onDrop, dropList }) {
+function Network_({ graph, t, A, onDrop, dropList, dropEntries = [] }) {
   const [showAll, setShowAll] = useState(false);
   const [node, setNode] = useState(null);
   if (!graph) return null;
@@ -232,6 +232,15 @@ function Network_({ graph, t, A, onDrop, dropList }) {
         ))}
       </ul>
       {!node && <p className="an-note pad">{A.netHint}</p>}
+      {dropEntries.length > 0 && (
+        <div className="an-droplist">
+          <h2 className="an-h">{A.dropTitle} · {dropEntries.length}</h2>
+          <ul>{dropEntries.map((d) => (
+            <li key={d.account} className={d.auto ? "auto" : ""}><b>{d.account}</b>
+              <small>{d.auto ? A.dropAuto(d.fan_in, d.hold_min) + (d.source === "live" ? ` (${A.dropLive})` : "") : A.dropManual(d.by)}</small></li>
+          ))}</ul>
+        </div>
+      )}
       {node && (
         <div className="an-sheet" role="dialog" aria-label={node.id}>
           <header><b>{node.id}</b><span className={"an-role-chip " + node.role}>{t.role[node.role]}</span>
@@ -279,6 +288,6 @@ export default function AnalystApp({ tab, dash, graph, lang, t, A, audit = [], o
   if (tx) return <Detail tx={tx} lang={lang} t={t} A={A} onBack={() => setOpen(null)} onDecide={onDecide} onDrop={onDrop} dropList={dropList} notice={notice} onReport={onReport} />;
   if (tab === "audit") return <Audit audit={audit} A={A} />;
   if (tab === "queue") return <Queue dash={dash} t={t} A={A} filter={filter} setFilter={setFilter} onOpen={setOpen} />;
-  if (tab === "network") return <Network_ graph={graph} t={t} A={A} onDrop={onDrop} dropList={dropList} />;
+  if (tab === "network") return <Network_ graph={graph} t={t} A={A} onDrop={onDrop} dropList={dropList} dropEntries={dash?.drop_list || []} />;
   return <Overview dash={dash} t={t} A={A} onOpen={setOpen} />;
 }

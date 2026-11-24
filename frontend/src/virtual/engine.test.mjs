@@ -179,3 +179,8 @@ test("behaviour v2: leaving the app, rhythm against the client's usual, phone on
   assert.ok(["app_switch", "typing_rhythm", "phone_flat", "corrections"].every((k) => keys.includes(k)));
   assert.equal((await ok(`/api/transfer/${r.tx_id}`)).behavior.typing_baseline_ms, 420);
 });
+
+test("graph flags droppers by itself", async () => {
+  const auto = (await ok("/api/dashboard")).drop_list.filter((d) => d.auto);
+  assert.ok(auto.some((d) => d.account.endsWith("4471")) && auto.every((d) => d.fan_in >= 3));
+});

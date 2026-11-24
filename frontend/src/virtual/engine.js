@@ -127,6 +127,13 @@ function syncGuardians() {
   }
 }
 syncGuardians();
+S.flagFromGraph(graph.nodes, POLICY.auto_drop);
+
+function sendersLastHour(rec) {
+  const since = S.now().getTime() - 3600_000;
+  const live = new Set([...TX.values()].filter((t) => t.live && t.recipient === rec.account && t.status === "approved" && new Date(t.time).getTime() >= since).map((t) => t.client));
+  return (S.SEED.senders_last_hour[rec.id] || 0) + live.size;
+}
 
 function escalate(tx, lang) {
   const persona = personas.find((p) => p.id === tx.persona);
@@ -251,12 +258,15 @@ const routes = {
         en: `Senim flagged a scam phone call on this device ${m} minutes ago` });
     }
     const names = b.recipient_name && !rec.known ? S.nameCheck(rec.id, b.recipient_name) : null;
+    const senders = sendersLastHour(rec), rule = POLICY.auto_drop;
+    const node = DROP[rec.account] || graph.nodes.find((n) => n.id === rec.account);
+    if (senders >= rule.senders && !rec.known && (!node || node.hold_min == null || node.hold_min <= rule.max_hold_min)) S.flag(rec.account, senders, node ? node.hold_min : null, "live");
     const pol = policyEvaluate({
       amount: b.amount, amount_ratio: b.amount / Math.max(persona.avg_amount, 1), hour, model_risk: modelRisk,
       new_recipient: !rec.known, other_bank: Boolean(b.other_bank), new_device: Boolean(s.new_device), on_call: Boolean(s.on_call),
       unknown_caller: Boolean(s.unknown_caller), scam_call_minutes: s.scam_call_minutes ?? null, remote_access: Boolean(s.remote_app),
       rooted: Boolean(s.rooted), vpn: Boolean(s.vpn), drop_list: Boolean(S.DROP_LIST[rec.account]),
-      senders_last_hour: S.SEED.senders_last_hour[rec.id] || 0, loan_minutes_ago: s.loan_minutes_ago ?? null,
+      senders_last_hour: senders, loan_minutes_ago: s.loan_minutes_ago ?? null,
       name_match: names ? names.match : null, pasted: Boolean(s.pasted), typing_pause_ms: s.typing_pause_ms ?? null,
       typing_median_ms: s.typing_median_ms ?? null, typing_baseline_ms: S.SEED.behavior?.[persona.id]?.typing_ms ?? null,
       app_switches: s.app_switches || 0, phone_flat: Boolean(s.phone_flat), corrections: s.corrections || 0 });
@@ -416,7 +426,7 @@ const routes = {
   },
 
   async "/api/graph"() { return graph; },
-  async "/api/demo/reset"() { S.reset(); syncGuardians(); seed(); return { ok: true }; },
+  async "/api/demo/reset"() { S.reset(); S.flagFromGraph(graph.nodes, POLICY.auto_drop); syncGuardians(); seed(); return { ok: true }; },
 
   // ---------------------------------------------------------------- Senim Saqshy (same as backend/main.py)
   async "/api/protect/trusted/invite"(b) {

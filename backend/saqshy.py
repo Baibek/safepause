@@ -73,6 +73,22 @@ def adoption():
     return {k: round(sum(r[k] for r in rows) / n, 3) for k in ("trusted", "locked", "passkey")} | {"clients": n}
 
 
+# ---------------------------------------------------------------- incoming money: the graph flags droppers by itself
+def flag(account, fan_in, hold_min, source):
+    """Adds an account to the dropper list on the graph's own evidence (many senders, money leaves fast)."""
+    if account not in DROP_LIST:
+        DROP_LIST[account] = {"account": account, "by": "graph", "auto": True, "fan_in": fan_in, "hold_min": hold_min,
+                              "source": source, "reason": f"{fan_in} senders, money held {hold_min if hold_min is not None else '?'} min",
+                              "time": now_iso()}
+        audit("Граф", "system", "droplist_auto", account, DROP_LIST[account]["reason"])
+
+
+def flag_from_graph(nodes, rule):
+    for n in nodes:
+        if n["fan_in"] >= rule["senders"] and n["hold_min"] is not None and n["hold_min"] <= rule["max_hold_min"]:
+            flag(n["id"], n["fan_in"], n["hold_min"], "graph")
+
+
 # ---------------------------------------------------------------- name check
 def _norm(s):
     return re.sub(r"[^a-zа-яёәғқңөұүһі ]", "", (s or "").lower()).split()

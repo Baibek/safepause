@@ -145,3 +145,16 @@ def test_behaviour_against_the_clients_usual():
     r = transfer(recipient="family", amount=15000, signals={"app_switches": 2, "typing_median_ms": 1200, "phone_flat": True, "corrections": 7}).json()
     assert {"app_switch", "typing_rhythm", "phone_flat", "corrections"} <= {s["key"] for s in r["signals"]}
     assert main.TX[r["tx_id"]]["behavior"]["typing_baseline_ms"] == 420
+
+
+def test_graph_flags_droppers_by_itself():
+    auto = [d for d in client.get("/api/dashboard").json()["drop_list"] if d.get("auto")]
+    assert any(d["account"].endswith("4471") for d in auto) and all(d["fan_in"] >= 3 for d in auto)
+
+
+def test_many_senders_in_the_last_hour_flag_the_account_live(monkeypatch):
+    monkeypatch.setitem(main.saqshy.SEED["senders_last_hour"], "new_clean", 3)
+    r = transfer(persona="daniyar", amount=20000).json()
+    account = next(x for x in main.RECIPIENTS if x["id"] == "new_clean")["account"]
+    entry = main.saqshy.DROP_LIST[account]
+    assert entry["auto"] and entry["source"] == "live" and any(s["key"] == "drop_list" for s in r["signals"])

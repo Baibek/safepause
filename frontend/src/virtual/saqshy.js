@@ -51,6 +51,17 @@ export function adoption() {
   return { trusted: share("trusted"), locked: share("locked"), passkey: share("passkey"), clients: rows.length };
 }
 
+// incoming money: the graph flags droppers by itself (as backend/saqshy.py)
+export function flag(account, fanIn, holdMin, source) {
+  if (DROP_LIST[account]) return;
+  DROP_LIST[account] = { account, by: "graph", auto: true, fan_in: fanIn, hold_min: holdMin, source,
+    reason: `${fanIn} senders, money held ${holdMin ?? "?"} min`, time: nowIso() };
+  audit("Граф", "system", "droplist_auto", account, DROP_LIST[account].reason);
+}
+export function flagFromGraph(nodes, rule) {
+  for (const n of nodes) if (n.fan_in >= rule.senders && n.hold_min != null && n.hold_min <= rule.max_hold_min) flag(n.id, n.fan_in, n.hold_min, "graph");
+}
+
 const norm = (s) => String(s || "").toLowerCase().replace(/[^a-zа-яёәғқңөұүһі ]/g, "").split(/\s+/).filter(Boolean);
 
 export function nameCheck(recipientId, typed) {

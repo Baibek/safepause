@@ -485,13 +485,18 @@ def check(body: CheckIn):
                            "ru": ("Только что" if m < 1 else f"{m} мин назад") + " на вашем телефоне распознан звонок с признаками мошенничества",
                            "en": f"Senim flagged a scam phone call on this device {m} minutes ago"})
     names = saqshy.name_check(rec["id"], body.recipient_name) if body.recipient_name and not rec["known"] else None
+    senders = senders_last_hour(rec)
+    rule = policy.POLICY["auto_drop"]
+    node = DROP.get(rec["account"]) or next((n for n in GRAPH["nodes"] if n["id"] == rec["account"]), None)
+    if senders >= rule["senders"] and not rec["known"] and (node is None or node["hold_min"] is None or node["hold_min"] <= rule["max_hold_min"]):
+        saqshy.flag(rec["account"], senders, node["hold_min"] if node else None, "live")
     pol = policy.evaluate({
         "amount": body.amount, "amount_ratio": body.amount / max(persona["avg_amount"], 1.0), "hour": hour,
         "model_risk": model_risk, "new_recipient": not rec["known"], "other_bank": body.other_bank,
         "new_device": s.new_device, "on_call": s.on_call, "unknown_caller": s.unknown_caller,
         "scam_call_minutes": s.scam_call_minutes, "remote_access": s.remote_app, "rooted": s.rooted, "vpn": s.vpn,
         "drop_list": rec["account"] in saqshy.DROP_LIST,
-        "senders_last_hour": saqshy.SEED["senders_last_hour"].get(rec["id"], 0),
+        "senders_last_hour": senders,
         "loan_minutes_ago": s.loan_minutes_ago, "name_match": names["match"] if names else None,
         "pasted": s.pasted, "typing_pause_ms": s.typing_pause_ms, "typing_median_ms": s.typing_median_ms,
         "typing_baseline_ms": saqshy.SEED.get("behavior", {}).get(persona["id"], {}).get("typing_ms"),
@@ -740,6 +745,7 @@ def graph():
 @app.post("/api/demo/reset")
 def reset():
     saqshy.reset()
+    saqshy.flag_from_graph(GRAPH["nodes"], policy.POLICY["auto_drop"])
     sync_guardians()
     seed()
     return {"ok": True}
@@ -1083,6 +1089,16 @@ def demo_clock(body: ClockIn):
 
 
 sync_guardians()
+saqshy.flag_from_graph(GRAPH["nodes"], policy.POLICY["auto_drop"])
+
+
+def senders_last_hour(rec):
+    """Distinct people whose money reached this account in the last hour: the seed's history plus live transfers."""
+    since = saqshy.now() - timedelta(hours=1)
+    live = {t["client"] for t in TX.values() if t.get("live") and t["recipient"] == rec["account"] and t["status"] == "approved"
+            and datetime.fromisoformat(t["time"]) >= since}
+    return saqshy.SEED["senders_last_hour"].get(rec["id"], 0) + len(live)
+
 
 DIST = HERE.parent / "frontend" / "dist"
 if DIST.exists():
