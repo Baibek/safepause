@@ -27,6 +27,12 @@ class SafePauseSdkTest {
     @Test fun sampleDemoCallNeverReachesTheBank() =
         assertNull(transferSignals(listOf(rec(1, Level.HIGH, CallKind.SAMPLE)), now).scamCallMinutes)
 
+    @Test fun raspSignalsJoinTheJson() =
+        assertEquals("{\"scam_call_minutes\":5.0,\"rooted\":true,\"remote_app\":true}",
+            transferSignals(listOf(rec(5, Level.HIGH)), now).copy(rooted = true, remoteApp = true).toJson())
+
+    @Test fun noSignalsIsAnEmptyObject() = assertEquals("{}", transferSignals(emptyList(), now).toJson())
+
     @Test fun jsonMatchesTheBankApi() =
         assertEquals("{\"scam_call_minutes\":5.0}", transferSignals(listOf(rec(5, Level.HIGH)), now).toJson())
 }

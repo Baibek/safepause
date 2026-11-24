@@ -179,6 +179,25 @@ fun HomeScreen(settings: Settings, models: ModelManager, t: (String) -> String, 
         }
     }
 
+    // RASP: what this phone says about itself (root, emulator, remote control, apps drawing over others)
+    val rasp = remember(tick) { kz.safepause.guard.rasp.RaspCollector.report(ctx) }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(t("device_title"), fontWeight = FontWeight.SemiBold)
+            if (rasp.findings.isEmpty()) Row(verticalAlignment = Alignment.CenterVertically) {
+                Spacer(Modifier.size(14.dp).background(Palette.green, CircleShape)); Spacer(Modifier.width(10.dp)); Text(t("device_ok"))
+            }
+            rasp.findings.forEach { f ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Spacer(Modifier.size(14.dp).background(if (f.key == "remote_active" || f.key == "rooted") Palette.red else Palette.amber, CircleShape))
+                    Spacer(Modifier.width(10.dp))
+                    Text(if (settings.lang == "ru") f.ru else f.kk, fontSize = 14.sp)
+                }
+            }
+            if (rasp.remoteAccess) Text(t("device_remote_advice"), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+
     var sampleProblem by remember { mutableStateOf<kz.safepause.guard.call.Problem?>(null) }
     Button(onClick = { if (SampleCall.running()) SampleCall.stop() else sampleProblem = SampleCall.start(ctx) },
         enabled = models.ready(), modifier = Modifier.fillMaxWidth(),

@@ -12,6 +12,22 @@
     <uses-permission android:name="android.permission.SEND_SMS" />
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
+    <!-- RASP: only these packages are visible to the app (remote-control and root tools) -->
+    <queries>
+        <package android:name="com.anydesk.anydeskandroid" />
+        <package android:name="com.carriez.flutter_hbb" />
+        <package android:name="com.teamviewer.quicksupport.market" />
+        <package android:name="com.teamviewer.host.market" />
+        <package android:name="com.sand.airdroid" />
+        <package android:name="com.sand.airmirror" />
+        <package android:name="com.rsupport.mvagent" />
+        <package android:name="com.topjohnwu.magisk" />
+        <package android:name="eu.chainfire.supersu" />
+        <package android:name="com.noshufou.android.su" />
+        <package android:name="com.koushikdutta.superuser" />
+        <package android:name="me.weishu.kernelsu" />
+    </queries>
+
     <application
         android:name=".SafePauseApp"
         android:label="@string/app_name"
