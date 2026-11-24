@@ -136,14 +136,48 @@ export const STR = {
 export const fmt = (n) => Math.round(n).toLocaleString("ru-RU").replace(/,/g, " ");
 
 import { virtualApi } from "./virtual/engine.js";
+import ACCESS from "../../shared/access_policy.json";
 
 export const VIRTUAL = import.meta.env.MODE === "virtual";
 
-export async function api(path, body) {
+// ---- sessions on the Python server (shared/access_policy.json): each request acts as one role; the demo logs in
+// to each role it needs (a client or trusted contact for the persona in the scenario panel).
+const RULES = ACCESS.rules.map((r) => ({ ...r, rx: new RegExp(r.path) }));
+let sessionPersona = "aigul";
+const sessions = {};
+export const setSessionPersona = (p) => { sessionPersona = p; };
+const roleFor = (method, path) => {
+  const r = RULES.find((x) => x.method === method && x.rx.test(path));
+  return r && !r.roles.includes("public") ? r.roles[0] : null;
+};
+const csrf = () => decodeURIComponent(document.cookie.match(/(?:^|; )senim_csrf=([^;]+)/)?.[1] || "");
+async function ensureLogin(role, force = false) {
+  const persona = role === "client" || role === "trusted" ? sessionPersona : null;
+  if (!force && role in sessions && sessions[role] === persona) return;
+  let password;
+  for (let i = 0; i < 3; i++) {
+    const r = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role, persona, password }) });
+    if (r.ok) { sessions[role] = persona; return; }
+    if (r.status !== 401) break;
+    password = window.prompt(`${role}: password (SENIM_STAFF_PASSWORD)`);
+    if (password == null) break;
+  }
+  throw new Error(`login as ${role} failed`);
+}
+
+/** Calls the API. role: which session to act as (default: the first role the access policy allows for the path). */
+export async function api(path, body, role) {
   if (VIRTUAL) return virtualApi(path, body);
-  const r = await fetch(path, body === undefined ? undefined : {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
-  });
-  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+  const method = body === undefined ? "GET" : "POST";
+  role ||= roleFor(method, path);
+  const send = async () => {
+    if (role) await ensureLogin(role);
+    return fetch(path, { method, headers: { "Content-Type": "application/json", ...(role ? { "X-Senim-Role": role, "X-CSRF-Token": csrf() } : {}) },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  };
+  let r = await send();
+  if (r.status === 401 && role) { delete sessions[role]; r = await send(); }
+  if (!r.ok) throw Object.assign(new Error((await r.json().catch(() => ({}))).detail || r.statusText), { status: r.status });
   return r.json();
 }

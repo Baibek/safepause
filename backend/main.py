@@ -12,6 +12,7 @@ import pandas as pd
 import xgboost as xgb
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -19,6 +20,7 @@ import graph as graph_mod
 import llm
 import policy
 import saqshy
+import security
 import webauthn
 from features import FEATURES, build_features
 
@@ -228,6 +230,103 @@ seed()
 
 # ---------------------------------------------------------------- API
 app = FastAPI(title="Senim")
+security.install_log_masking()
+
+
+def owner_of(method, path, data):
+    """The persona a request is about: from the path (GET), the body, the transfer or the notification it names."""
+    m = re.match(r"^/api/(?:protect|callstatus|client/history)/([^/]+)$", path) if method == "GET" else None
+    if m:
+        return m.group(1)
+    m = re.match(r"^/api/transfer/([^/]+)$", path) if method == "GET" else None
+    tx_id = m.group(1) if m and m.group(1) != "check" else data.get("tx_id")
+    if data.get("persona"):
+        return data["persona"]
+    if tx_id:
+        return (TX.get(tx_id) or {}).get("persona", "?")
+    if data.get("id"):
+        n = next((x for x in NOTIFICATIONS if x["id"] == data["id"]), None)
+        return next((pid for pid, p in PERSONAS.items() if n and p["name"] == n["client"]), "?")
+    return None
+
+
+@app.middleware("http")
+async def guard(request: Request, call_next):
+    path = request.url.path
+    if path.startswith("/api/"):
+        ip = request.client.host if request.client else "?"
+        wait = security.LIMITER.hit(ip, path) if security.enabled() else None
+        if wait:
+            return JSONResponse({"detail": "too many requests"}, 429, headers={"Retry-After": str(wait)})
+        if security.enabled():
+            rule = security.rule_for(request.method, path)
+            if not rule:
+                return JSONResponse({"detail": "not allowed"}, 403)
+            if "public" not in rule["roles"]:
+                role = request.headers.get("x-senim-role") or rule["roles"][0]
+                if role not in rule["roles"]:
+                    return JSONResponse({"detail": f"role {role} may not call this"}, 403)
+                sess = security.verify(request.cookies.get(f"senim_{role}"))
+                if not sess:
+                    return JSONResponse({"detail": "log in first"}, 401)
+                if request.method != "GET":
+                    token = request.headers.get("x-csrf-token", "")
+                    if not token or not secrets_compare(token, request.cookies.get("senim_csrf", "")):
+                        return JSONResponse({"detail": "CSRF token missing or wrong"}, 403)
+                if rule.get("own") and role in ("client", "trusted"):
+                    body = await request.body()
+                    try:
+                        data = json.loads(body) if body else {}
+                    except ValueError:
+                        data = {}
+                    pid = owner_of(request.method, path, data if isinstance(data, dict) else {})
+                    if pid is not None and pid != sess.get("p"):
+                        return JSONResponse({"detail": "this belongs to another client"}, 403)
+                request.state.session = sess
+    resp = await call_next(request)
+    for k, v in security.SECURITY_HEADERS.items():
+        resp.headers.setdefault(k, v)
+    return resp
+
+
+def secrets_compare(a, b):
+    import hmac
+    return bool(b) and hmac.compare_digest(a, b)
+
+
+class LoginIn(BaseModel):
+    role: str
+    persona: Optional[str] = None
+    password: Optional[str] = None
+
+
+@app.post("/api/auth/login")
+def login(body: LoginIn, request: Request):
+    """Demo login: a client or trusted contact names the persona; staff roles need SENIM_STAFF_PASSWORD if it is set."""
+    if body.role not in security.ROLES:
+        raise HTTPException(400, "unknown role")
+    if body.role in ("client", "trusted") and body.persona not in PERSONAS:
+        raise HTTPException(400, "a client session needs a persona")
+    pw = security.staff_password()
+    if body.role in security.POLICY["staff_roles"] and pw and not secrets_compare(body.password or "", pw):
+        saqshy.audit(body.role, body.role, "login_failed", body.role, "wrong password")
+        raise HTTPException(401, "password required")
+    resp = JSONResponse({"role": body.role, "persona": body.persona})
+    secure = request.url.scheme == "https"
+    resp.set_cookie(f"senim_{body.role}", security.sign(body.role, body.persona), httponly=True, samesite="strict",
+                    secure=secure, max_age=security.SESSION_HOURS * 3600, path="/")
+    csrf = request.cookies.get("senim_csrf") or uuid.uuid4().hex + uuid.uuid4().hex
+    resp.set_cookie("senim_csrf", csrf, httponly=False, samesite="strict", secure=secure, path="/")
+    return resp
+
+
+@app.post("/api/auth/logout")
+def logout():
+    resp = JSONResponse({"ok": True})
+    for r in security.ROLES:
+        resp.delete_cookie(f"senim_{r}", path="/")
+    return resp
+
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
@@ -565,9 +664,20 @@ def message_check(body: MessageIn):
 
 
 @app.get("/api/guardian/notifications")
-def guardian_notifications():
+def guardian_notifications(request: Request):
     expire_approvals()
+    sess = getattr(request.state, "session", None)
+    if sess and sess.get("p"):                    # a client or trusted contact sees only their own family's
+        name = PERSONAS.get(sess["p"], {}).get("name")
+        return [n for n in NOTIFICATIONS if n["client"] == name]
     return NOTIFICATIONS
+
+
+@app.get("/api/client/history/{pid}")
+def client_history(pid: str):
+    """The client's own transfers, newest first (the dashboard is for analysts only)."""
+    p = persona_or_404(pid)
+    return sorted((t for t in TX.values() if t.get("live") and t["client"] == p["name"]), key=lambda t: t["time"], reverse=True)
 
 
 @app.post("/api/guardian/respond")

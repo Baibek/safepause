@@ -576,6 +576,10 @@ function protection(pid) {
 const PREFIX = {
   "/api/protect/": (pid) => protection(pid),
   "/api/callstatus/": (pid) => { personaOr404(pid); const st = S.SESSIONS[pid]; return { active: Boolean(st), staff: st ? { ...st } : null }; },
+  "/api/client/history/": (pid) => {
+    const p = personaOr404(pid);
+    return [...TX.values()].filter((t) => t.live && t.client === p.name).sort((a, b) => (a.time < b.time ? 1 : -1)).map((t) => ({ ...t }));
+  },
   "/api/transfer/": (id) => { const tx = TX.get(id); if (!tx) throw fail(404, "not found"); return { ...tx }; },
 };
 

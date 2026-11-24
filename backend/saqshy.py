@@ -39,8 +39,9 @@ def mask_phone(p):
 
 def audit(actor, role, action, target, reason=""):
     """Every decision, who made it and why. Phone numbers never reach the log."""
+    import security
     AUDIT.insert(0, {"time": now_iso(), "actor": actor, "role": role, "action": action, "target": target,
-                     "reason": re.sub(r"\+?\d[\d\s()-]{8,}\d", lambda m: mask_phone(m.group()), reason)})
+                     "reason": security.mask(re.sub(r"\+?\d[\d\s()-]{8,}\d", lambda m: mask_phone(m.group()), reason))})
 
 
 # ---------------------------------------------------------------- protection settings

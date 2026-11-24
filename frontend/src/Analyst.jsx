@@ -42,7 +42,7 @@ function StaffConsole({ boot, G }) {
   const [call, setCall] = useState(null);
   const [note, setNote] = useState("");
   const staffList = boot?.staff || [];
-  const refresh = () => api(`/api/callstatus/${pid}`).then(setCall).catch(() => {});
+  const refresh = () => api(`/api/callstatus/${pid}`, undefined, "staff").then(setCall).catch(() => {});
   useEffect(() => { refresh(); setNote(""); }, [pid]);
   const who = personas.find((p) => p.id === pid)?.name || pid;
   return (
@@ -62,7 +62,7 @@ function StaffConsole({ boot, G }) {
         </>
       ) : <button className="primary" onClick={async () => { await api("/api/callstatus/start", { persona: pid, staff_id: sid }); refresh(); }}>{G.startCall}</button>}
       <button className="ghost" onClick={async () => {
-        const st = await api(`/api/protect/${pid}`);
+        const st = await api(`/api/protect/${pid}`, undefined, "staff");
         if (!st.locked) return setNote(G.atmEmpty);
         const r = await api("/api/protect/unlock", { persona: pid, amount: st.locked, channel: "atm", biometric: true });
         setNote(G.atmDone(fmt(r.available)));

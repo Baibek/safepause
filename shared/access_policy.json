@@ -1,0 +1,33 @@
+{
+ "_doc": "Who may call what (RBAC). backend/security.py enforces it; frontend/src/i18n.js picks the session role from it. 'own' means a client or trusted contact may touch only the persona their session is for. First matching rule wins; anything unmatched under /api/ is denied.",
+ "rules": [
+  {"method": "GET",  "path": "^/api/bootstrap$", "roles": ["public"]},
+  {"method": "POST", "path": "^/api/auth/(login|logout)$", "roles": ["public"]},
+  {"method": "POST", "path": "^/api/transfer/check$", "roles": ["client"], "own": true},
+  {"method": "POST", "path": "^/api/(dialog/answer|verify/respond)$", "roles": ["client"], "own": true},
+  {"method": "GET",  "path": "^/api/transfer/[^/]+$", "roles": ["client", "analyst"], "own": true},
+  {"method": "POST", "path": "^/api/message/check$", "roles": ["client", "trusted"]},
+  {"method": "POST", "path": "^/api/recipient/check$", "roles": ["client"]},
+  {"method": "GET",  "path": "^/api/client/history/[^/]+$", "roles": ["client"], "own": true},
+  {"method": "GET",  "path": "^/api/protect/[^/]+$", "roles": ["client", "staff"], "own": true},
+  {"method": "POST", "path": "^/api/protect/(lock|trusted/invite|trusted/remove)$", "roles": ["client"], "own": true},
+  {"method": "POST", "path": "^/api/protect/trusted/accept$", "roles": ["trusted"], "own": true},
+  {"method": "POST", "path": "^/api/protect/unlock$", "roles": ["staff"]},
+  {"method": "POST", "path": "^/api/passkey/", "roles": ["client"], "own": true},
+  {"method": "GET",  "path": "^/api/callstatus/[^/]+$", "roles": ["client", "staff"], "own": true},
+  {"method": "POST", "path": "^/api/callstatus/(start|end)$", "roles": ["staff"]},
+  {"method": "GET",  "path": "^/api/guardian/notifications$", "roles": ["client", "trusted"], "own": true},
+  {"method": "POST", "path": "^/api/guardian/respond$", "roles": ["trusted"], "own": true},
+  {"method": "GET",  "path": "^/api/(dashboard|audit|graph)$", "roles": ["analyst"]},
+  {"method": "POST", "path": "^/api/analyst/", "roles": ["analyst"]},
+  {"method": "POST", "path": "^/api/demo/(reset|clock)$", "roles": ["admin"]}
+ ],
+ "rate_limits": {
+  "^/api/auth/login$": 30,
+  "^/api/passkey/verify$": 20,
+  "^/api/message/check$": 30,
+  "^/api/transfer/check$": 30,
+  "default": 240
+ },
+ "staff_roles": ["staff", "analyst", "admin"]
+}

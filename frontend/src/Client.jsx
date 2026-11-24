@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { api, fmt } from "./i18n.js";
+import { setSessionPersona, api, fmt } from "./i18n.js";
 import CallGuard, { CALL_T } from "./call/CallGuard.jsx";
 import VerifyCall from "./phone/VerifyCall.jsx";
 import ProtectScreen from "./phone/ProtectScreen.jsx";
@@ -94,6 +94,7 @@ export default function Client({ boot, lang, t }) {
   const scamCallMinutes = scamCallAt && now - scamCallAt <= 3600_000 ? Math.max(0, (now - scamCallAt) / 60000) : null;
 
   const persona = boot.personas.find((p) => p.id === sc.persona);
+  setSessionPersona(sc.persona);   // the server session acts for the client chosen in the scenario panel
   const rec = boot.recipients.find((r) => r.id === sc.recipient);
   const balance = persona.balance - (spent[persona.id] || 0);
   const set = (patch) => setSc((s) => ({ ...s, ...patch }));
@@ -103,8 +104,8 @@ export default function Client({ boot, lang, t }) {
   // the client's own transfers, newest first, from the same feed the analyst sees
   const loadHistory = () => {
     setHistoryLoading(true);
-    return api("/api/dashboard")
-      .then((d) => setHistory(d.transactions.filter((x) => x.live && x.client === persona.name)))
+    return api(`/api/client/history/${persona.id}`)
+      .then(setHistory)
       .catch(() => {}).finally(() => setHistoryLoading(false));
   };
   useEffect(() => { if (tab === "home" || tab === "history") loadHistory(); }, [tab, persona.name, final]);
