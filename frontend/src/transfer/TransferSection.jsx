@@ -28,6 +28,14 @@ export default function TransferSection({ step, setStep, boot, lang, t, P, balan
   const amount = Number(sc.amount) || 0;
   const field = type === "iban" ? rec.account : CONTACT[rec.id]?.[type] || rec.account;
   const words = amount ? amountInWords(amount, lang) : "";
+  // behaviour: pasted details and long pauses while typing the amount (as when someone dictates it)
+  const lastKey = React.useRef(0);
+  const onAmountKey = () => {
+    const t0 = performance.now(), gap = lastKey.current ? t0 - lastKey.current : 0;
+    lastKey.current = t0;
+    if (gap > (sc.typing_pause_ms || 0) && gap < 60_000) set({ typing_pause_ms: Math.round(gap) });
+  };
+  const onPaste = () => set({ pasted: true });
   // name check for a first transfer to someone new: does the typed name match the account owner?
   const [nc, setNc] = useState(null);
   const typed = sc.recipient_name || "";
@@ -94,7 +102,7 @@ export default function TransferSection({ step, setStep, boot, lang, t, P, balan
       {!rec.known && type !== "iban" && (
         <>
           <label className="field-label" htmlFor="rec-name">{P.nameCheck.label}</label>
-          <input id="rec-name" className="field-x" value={typed} autoComplete="off" placeholder={P.nameCheck.hint}
+          <input id="rec-name" className="field-x" value={typed} autoComplete="off" placeholder={P.nameCheck.hint} onPaste={onPaste}
             onChange={(e) => set({ recipient_name: e.target.value.slice(0, 60) })} />
           {nc && (nc.drop_list
             ? <p className="nc bad" role="alert">{P.nameCheck.drop}</p>
@@ -105,7 +113,7 @@ export default function TransferSection({ step, setStep, boot, lang, t, P, balan
 
       <label className="field-label" htmlFor="amt">{t.trAmount}</label>
       <div className="amount-x">
-        <input id="amt" inputMode="numeric" autoComplete="off" value={amount ? fmt(amount) : ""} placeholder="0"
+        <input id="amt" inputMode="numeric" autoComplete="off" value={amount ? fmt(amount) : ""} placeholder="0" onKeyDown={onAmountKey} onPaste={onPaste}
           onChange={(e) => set({ amount: e.target.value.replace(/\D/g, "").slice(0, 9) })} />
         <span>₸</span>
       </div>

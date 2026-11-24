@@ -49,6 +49,12 @@
   {"name": "partial name match is a small signal",
    "facts": {"amount": 40000, "amount_ratio": 1, "hour": 12, "name_match": "partial", "new_recipient": true},
    "expect": {"score": 18, "tier": "pass", "signals": ["new_recipient", "name_partial"], "cooling": null}},
+  {"name": "pasted details and dictated typing are behaviour signals",
+   "facts": {"amount": 40000, "amount_ratio": 1, "hour": 12, "pasted": true, "typing_pause_ms": 4000},
+   "expect": {"score": 20, "tier": "pass", "signals": ["pasted_details", "dictated_typing"], "cooling": null}},
+  {"name": "short typing pauses are normal",
+   "facts": {"amount": 40000, "amount_ratio": 1, "hour": 12, "typing_pause_ms": 900},
+   "expect": {"score": 0, "tier": "pass", "signals": [], "cooling": null}},
   {"name": "device signals add up",
    "facts": {"amount": 10000, "amount_ratio": 1, "hour": 3, "rooted": true, "vpn": true},
    "expect": {"score": 25, "tier": "pass", "signals": ["rooted", "night", "vpn"], "cooling": null}}

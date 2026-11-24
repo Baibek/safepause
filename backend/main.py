@@ -200,6 +200,8 @@ class Signals(BaseModel):
     vpn: bool = False
     rooted: bool = False
     loan_minutes_ago: Optional[float] = None   # an online loan was taken this many minutes ago
+    pasted: bool = False                       # recipient details were pasted from the clipboard
+    typing_pause_ms: Optional[float] = None    # the longest pause while the amount was typed
 
 
 class CheckIn(BaseModel):
@@ -343,7 +345,8 @@ def check(body: CheckIn):
         "scam_call_minutes": s.scam_call_minutes, "remote_access": s.remote_app, "rooted": s.rooted, "vpn": s.vpn,
         "drop_list": rec["account"] in saqshy.DROP_LIST,
         "senders_last_hour": saqshy.SEED["senders_last_hour"].get(rec["id"], 0),
-        "loan_minutes_ago": s.loan_minutes_ago, "name_match": names["match"] if names else None})
+        "loan_minutes_ago": s.loan_minutes_ago, "name_match": names["match"] if names else None,
+        "pasted": s.pasted, "typing_pause_ms": s.typing_pause_ms})
     risk = pol["score"] / 100
     lvl = level_of(risk)
     tier = pol["tier"]

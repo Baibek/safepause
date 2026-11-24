@@ -29,6 +29,8 @@ function hits(f) {
   if (f.on_call && f.unknown_caller) add("unknown_caller", S.unknown_caller.points);
   if (f.new_recipient) add("new_recipient", S.new_recipient.points);
   if (f.name_match === "partial") add("name_partial", S.name_partial.points);
+  if (f.pasted) add("pasted_details", S.pasted_details.points);
+  if ((f.typing_pause_ms || 0) >= S.dictated_typing.pause_ms) add("dictated_typing", S.dictated_typing.points);
   if (f.hour != null && f.hour >= S.night.from_hour && f.hour < S.night.to_hour) add("night", S.night.points);
   if (f.vpn) add("vpn", S.vpn.points);
   return out;

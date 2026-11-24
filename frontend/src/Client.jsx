@@ -125,7 +125,8 @@ export default function Client({ boot, lang, t }) {
           other_bank: isOtherBank(sc.recipient, sc.ttype),
           signals: { on_call: sc.on_call, unknown_caller: sc.unknown_caller, remote_app: sc.remote_app,
             hour: sc.night ? 2 : null, session_seconds: sc.pace, scam_call_minutes: scamCallMinutes,
-            new_device: Boolean(sc.new_device), vpn: Boolean(sc.vpn), loan_minutes_ago: sc.loan ? 5 : null },
+            new_device: Boolean(sc.new_device), vpn: Boolean(sc.vpn), loan_minutes_ago: sc.loan ? 5 : null,
+            pasted: Boolean(sc.pasted), typing_pause_ms: sc.typing_pause_ms || null },
           recipient_name: sc.recipient_name || null,
         }),
         new Promise((r) => setTimeout(r, 1100)),   // let the scan read as a scan
@@ -206,6 +207,7 @@ export default function Client({ boot, lang, t }) {
         <label className="check"><input type="checkbox" checked={Boolean(sc.new_device)} onChange={(e) => set({ new_device: e.target.checked, loan: e.target.checked && sc.loan })} />{t.sigNewDevice}</label>
         <label className="check sub"><input type="checkbox" disabled={!sc.new_device} checked={Boolean(sc.loan)} onChange={(e) => set({ loan: e.target.checked })} />{t.sigLoan}</label>
         <label className="check"><input type="checkbox" checked={Boolean(sc.vpn)} onChange={(e) => set({ vpn: e.target.checked })} />{t.sigVpn}</label>
+        <p className="hint behavior">{t.behavior(Boolean(sc.pasted), (sc.typing_pause_ms || 0) / 1000)}</p>
         <label className="field">{t.sigTime}
           <select value={sc.night ? "1" : "0"} onChange={(e) => set({ night: e.target.value === "1" })}>
             <option value="0">{t.timeNow}</option><option value="1">{t.timeNight}</option>

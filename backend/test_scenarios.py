@@ -124,3 +124,8 @@ def test_every_decision_is_in_the_audit_log_without_phone_numbers():
     log = client.get("/api/audit").json()
     assert {e["action"] for e in log} >= {"trusted_invited", "pass"}
     assert not any("123 45" in e["reason"] for e in log)
+
+
+def test_pasted_details_and_dictated_typing_are_scored():
+    r = transfer(persona="daniyar", recipient="family", amount=20000, signals={"pasted": True, "typing_pause_ms": 5000}).json()
+    assert {"pasted_details", "dictated_typing"} <= {s["key"] for s in r["signals"]}

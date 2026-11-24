@@ -5,7 +5,8 @@ shared/policy_cases.json is checked against both.
 
 facts: amount, amount_ratio (amount / the client's usual transfer), hour, model_risk (0..1), new_recipient, other_bank,
 new_device, on_call, unknown_caller, scam_call_minutes, remote_access, rooted, vpn, drop_list, senders_last_hour,
-loan_minutes_ago, name_match ("full" | "partial" | "mismatch").
+loan_minutes_ago, name_match ("full" | "partial" | "mismatch"), pasted (recipient details pasted from the
+clipboard), typing_pause_ms (longest pause while typing the amount).
 """
 import json
 from pathlib import Path
@@ -55,6 +56,10 @@ def _hits(f):
         out.append(("new_recipient", S["new_recipient"]["points"], {}))
     if f.get("name_match") == "partial":
         out.append(("name_partial", S["name_partial"]["points"], {}))
+    if f.get("pasted"):
+        out.append(("pasted_details", S["pasted_details"]["points"], {}))
+    if (f.get("typing_pause_ms") or 0) >= S["dictated_typing"]["pause_ms"]:
+        out.append(("dictated_typing", S["dictated_typing"]["points"], {}))
     hour = f.get("hour")
     if hour is not None and S["night"]["from_hour"] <= hour < S["night"]["to_hour"]:
         out.append(("night", S["night"]["points"], {}))

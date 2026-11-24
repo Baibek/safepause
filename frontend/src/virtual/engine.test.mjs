@@ -89,3 +89,9 @@ test("name check", async () => {
   const m = async (name) => (await ok("/api/recipient/check", { recipient_id: "new_clean", name })).match;
   assert.deepEqual([await m("Ержан Қасымов"), await m("Ержан"), await m("Асхат Нұров")], ["full", "partial", "mismatch"]);
 });
+
+test("pasted details and dictated typing are scored", async () => {
+  const r = await transfer({ persona: "daniyar", recipient_id: "family", amount: 20000, signals: { pasted: true, typing_pause_ms: 5000 } });
+  const keys = r.signals.map((x) => x.key);
+  assert.ok(keys.includes("pasted_details") && keys.includes("dictated_typing"));
+});

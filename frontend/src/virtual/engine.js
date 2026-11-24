@@ -210,7 +210,7 @@ const routes = {
       unknown_caller: Boolean(s.unknown_caller), scam_call_minutes: s.scam_call_minutes ?? null, remote_access: Boolean(s.remote_app),
       rooted: Boolean(s.rooted), vpn: Boolean(s.vpn), drop_list: Boolean(S.DROP_LIST[rec.account]),
       senders_last_hour: S.SEED.senders_last_hour[rec.id] || 0, loan_minutes_ago: s.loan_minutes_ago ?? null,
-      name_match: names ? names.match : null });
+      name_match: names ? names.match : null, pasted: Boolean(s.pasted), typing_pause_ms: s.typing_pause_ms ?? null });
     const risk = pol.score / 100, lvl = levelOf(risk), tier = pol.tier;
     const tx = { id, time: S.nowIso(), client: persona.name, age: persona.age, persona: persona.id, recipient: rec.account, amount: b.amount,
       risk, model_risk: Math.round(modelRisk * 1000) / 1000, level: lvl, tier, signals: pol.signals, status: "approved",
