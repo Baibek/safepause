@@ -3,6 +3,7 @@ import { api, fmt } from "./i18n.js";
 import PhoneFrame, { TabBar } from "./phone/PhoneFrame.jsx";
 import AnalystApp, { ROLE_COLOR } from "./phone/AnalystApp.jsx";
 import { AN } from "./phone/analystStrings.js";
+import { SH } from "./shell.js";
 import { runFederated, FALSE_PAUSE } from "./virtual/federated.js";
 
 const PAGE = {
@@ -53,7 +54,7 @@ function Federated({ G }) {
   const pct = (v) => `${Math.round(v * 100)}%`;
   const cell = (v) => <td className={"num " + (v >= 0.8 ? "good" : v < 0.5 ? "bad" : "")}>{pct(v)}</td>;
   return (
-    <div className="panel fed">
+    <div className="panel bcard fed">
       <h2>{G.fed}</h2>
       <p className="hint">{G.fedLead}</p>
       <button className="primary" onClick={() => setR(runFederated())}>{G.fedRun}</button>
@@ -86,7 +87,7 @@ function StaffConsole({ boot, G }) {
   useEffect(() => { refresh(); setNote(""); }, [pid]);
   const who = personas.find((p) => p.id === pid)?.name || pid;
   return (
-    <div className="panel staff-console">
+    <div className="panel bcard staff-console">
       <h2>{G.console}</h2>
       <p className="hint">{G.consoleHint}</p>
       <label className="field">{G.client}
@@ -147,42 +148,61 @@ export default function Analyst({ lang, t, boot }) {
   ];
   const volume = graph ? graph.networks.reduce((a, n) => a + n.volume, 0) : 0;
 
-  return (
-    <main className="client-view analyst-view">
-      <section className="panel scenario">
-        <h2>{G.title}</h2>
-        <p className="hint">{G.lead}</p>
-        <ol className="how">{G.steps.map((s, i) => <li key={i}>{s}</li>)}</ol>
-        <p className="hint small">{G.synth}</p>
-      </section>
+  const S = SH[lang].an;
+  const sum = dash?.summary;
+  const kpis = sum ? [
+    ["checked", sum.checked, ""], ["paused", sum.paused, "amber"], ["cancelled", sum.cancelled, "red"],
+    ["awaiting", sum.awaiting, "amber"], ["saved", `${fmt(sum.protected_amount)} ₸`, "green"], ["fp", `${Math.round(sum.false_positive_share * 100)}%`, ""],
+  ] : [];
 
-      <section className="phone-wrap">
+  return (
+    <div className="shell analyst-shell analyst-view">
+      <main className="board">
+        <header className="an-head">
+          <h1>{S.title}</h1>
+          <p>{S.sub}</p>
+        </header>
+        <nav className="pills" aria-label={S.phoneCap}>
+          {tabs.map((x) => <button key={x.id} className={tab === x.id ? "on" : ""} aria-pressed={tab === x.id} onClick={() => setTab(x.id)}>{x.label}</button>)}
+        </nav>
+        <div className="kpi-strip">
+          {kpis.map(([k, v, tone]) => <div key={k} className="kpi-x"><small>{S.kpi[k]}</small><b className={tone}>{v}</b></div>)}
+        </div>
+        <div className="board-grid">
+          <section className="bcard">
+            <h2>{S.how}</h2>
+            <p className="hint">{G.lead}</p>
+            <ol className="how">{G.steps.map((x, i) => <li key={i}>{x}</li>)}</ol>
+            <p className="hint small">{G.synth}</p>
+          </section>
+          <StaffConsole boot={boot} G={G} />
+          <div className="bcard-wide"><Federated G={G} /></div>
+          <section className="bcard bcard-wide">
+            <h2>{G.netTitle}</h2>
+            <p className="hint">{G.netLead}</p>
+            {graph && (
+              <>
+                <ul className="net-sum">
+                  {graph.networks.map((n) => (
+                    <li key={n.id}><b>{t.net} {n.id}</b><span>{n.size} {t.accounts}, {n.victims} {t.victims}</span><b className="num">{fmt(n.volume)} ₸</b></li>
+                  ))}
+                </ul>
+                <p className="hint">{G.total(fmt(volume))}</p>
+                <div className="legend">{Object.keys(ROLE_COLOR).map((r) => <span key={r}><i style={{ background: ROLE_COLOR[r] }} />{t.role[r]}</span>)}</div>
+              </>
+            )}
+          </section>
+        </div>
+      </main>
+
+      <section className="sphone" aria-label={S.phoneCap}>
+        <div className="sphone-cap"><b>{S.phoneCap}</b><small>{S.phoneHint}</small></div>
         <PhoneFrame tone="light" tabBar={<TabBar tabs={tabs} active={tab} onChange={setTab} />}>
           <div className="analyst-app" key={tab}>
             <AnalystApp tab={tab} dash={dash} graph={graph} lang={lang} t={t} A={A} audit={audit} onDecide={decide} onDrop={drop} notice={notice} onReport={report} />
           </div>
         </PhoneFrame>
       </section>
-
-      <aside className="side">
-        <StaffConsole boot={boot} G={G} />
-        <Federated G={G} />
-        <div className="panel">
-          <h2>{G.netTitle}</h2>
-          <p className="hint">{G.netLead}</p>
-          {graph && (
-            <>
-              <ul className="net-sum">
-                {graph.networks.map((n) => (
-                  <li key={n.id}><b>{t.net} {n.id}</b><span>{n.size} {t.accounts}, {n.victims} {t.victims}</span><b className="num">{fmt(n.volume)} ₸</b></li>
-                ))}
-              </ul>
-              <p className="hint">{G.total(fmt(volume))}</p>
-              <div className="legend">{Object.keys(ROLE_COLOR).map((r) => <span key={r}><i style={{ background: ROLE_COLOR[r] }} />{t.role[r]}</span>)}</div>
-            </>
-          )}
-        </div>
-      </aside>
-    </main>
+    </div>
   );
 }

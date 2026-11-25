@@ -26,7 +26,7 @@ const SignalList = ({ items, solid }) => (
   </ul>
 );
 
-function TxRow({ tx, P }) {
+export function TxRow({ tx, P }) {
   return (
     <li className="tx-row">
       <span className={"tx-ic " + statusTone[tx.status]}><Icon name={tx.status === "cancelled" ? "close" : tx.status === "approved" ? "send" : "pause"} size={18} /></span>

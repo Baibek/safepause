@@ -8,7 +8,8 @@ import { isOtherBank } from "./transfer/TransferSection.jsx";
 import TransferSection from "./transfer/TransferSection.jsx";
 import PhoneFrame, { TabBar } from "./phone/PhoneFrame.jsx";
 import { PH } from "./phone/strings.js";
-import { HomeScreen, AnalysisScreen, WarningScreen, DialogScreen, ResultScreen, GuardianScreen, HistoryScreen, MessagesScreen } from "./phone/screens.jsx";
+import { HomeScreen, AnalysisScreen, WarningScreen, DialogScreen, ResultScreen, GuardianScreen, HistoryScreen, MessagesScreen, TxRow, IndexRing } from "./phone/screens.jsx";
+import { SH, SCEN_ORDER } from "./shell.js";
 import { STAGES } from "./call/detector.js";
 
 const PRESETS = {
@@ -47,7 +48,7 @@ function CallPanel({ state, lang, t }) {
   const level = state?.level || "LOW";
   const stageName = { AUTHORITY: t.stAuth, THREAT: t.stThreat, REQUEST: t.stRequest, ISOLATION: t.stIso };
   return (
-    <div className="panel">
+    <div>
       <h2>{t.callUnder}</h2>
       <p className="hint">{t.callHint}</p>
       <div className="risk-row"><span>{t.risk}</span><span className={"risk " + level.toLowerCase()}>{ct.lv[level]}</span></div>
@@ -67,7 +68,7 @@ function CallPanel({ state, lang, t }) {
   );
 }
 
-export default function Client({ boot, lang, t }) {
+export default function Client({ boot, lang, t, scenOpen = false, setScenOpen = () => {} }) {
   const [sc, setSc] = useState(PRESETS.pScam);
   // phone app navigation: a tab, and inside "transfer" the step of the flow
   const [tab, setTab] = useState("home");          // home | transfer | call | messages | history | guardian
@@ -109,7 +110,7 @@ export default function Client({ boot, lang, t }) {
       .then(setHistory)
       .catch(() => {}).finally(() => setHistoryLoading(false));
   };
-  useEffect(() => { if (tab === "home" || tab === "history") loadHistory(); }, [tab, persona.name, final]);
+  useEffect(() => { loadHistory(); }, [tab, persona.name, final, check]);   // the board lists them on every screen
 
   const resetFlow = () => { setFlow("form"); setCheck(null); setChat([]); setFinal(null); setErr(""); setBusy(false); };
   const [protectView, setProtectView] = useState("main");
@@ -192,55 +193,7 @@ export default function Client({ boot, lang, t }) {
 
   const guardian = async (id, action) => { await api("/api/guardian/respond", { id, action }); loadNotes(); };
 
-  return (
-    <main className="client-view">
-      {mode === "call" && (
-        <section className="panel scenario">
-          <h2>{t.callHowTitle}</h2>
-          <ol className="how">{t.callHow.map((x, i) => <li key={i}>{x}</li>)}</ol>
-          <p className="hint">{t.callPrivacy}</p>
-        </section>
-      )}
-      <section className="panel scenario" hidden={mode === "call"}>
-        <h2>{t.scenario}</h2>
-        <p className="hint">{t.scenarioHint}</p>
-        <h3>{t.presets}</h3>
-        <div className="presets">
-          {Object.keys(PRESETS).map((k) => (
-            <button key={k} className={sc === PRESETS[k] ? "on" : ""} onClick={() => applyPreset(k)}>{t[k]}</button>
-          ))}
-        </div>
-        <h3>{t.client}</h3>
-        <div className="seg">
-          {boot.personas.map((p) => (
-            <button key={p.id} className={sc.persona === p.id ? "on" : ""} onClick={() => { goHome(); set({ persona: p.id }); }}>
-              {p.name.split(" ")[0]}, {p.age} {t.years}
-            </button>
-          ))}
-        </div>
-        <p className="hint">{persona.guardian ? `${t.guardianOn}: ${persona.guardian.name} (${persona.guardian.relation[lang]})` : t.guardianOff}</p>
-        <label className="check"><input type="checkbox" checked={sc.on_call} onChange={(e) => set({ on_call: e.target.checked, unknown_caller: e.target.checked && sc.unknown_caller })} />{t.sigCall}</label>
-        <label className="check sub"><input type="checkbox" disabled={!sc.on_call} checked={sc.unknown_caller} onChange={(e) => set({ unknown_caller: e.target.checked })} />{t.sigUnknown}</label>
-        <label className="check"><input type="checkbox" checked={sc.remote_app} onChange={(e) => set({ remote_app: e.target.checked })} />{t.sigRemote}</label>
-        <label className="check"><input type="checkbox" checked={Boolean(sc.new_device)} onChange={(e) => set({ new_device: e.target.checked, loan: e.target.checked && sc.loan })} />{t.sigNewDevice}</label>
-        <label className="check sub"><input type="checkbox" disabled={!sc.new_device} checked={Boolean(sc.loan)} onChange={(e) => set({ loan: e.target.checked })} />{t.sigLoan}</label>
-        <label className="check"><input type="checkbox" checked={Boolean(sc.vpn)} onChange={(e) => set({ vpn: e.target.checked })} />{t.sigVpn}</label>
-        <p className="hint behavior">{t.behavior(Boolean(sc.pasted), (sc.typing_pause_ms || 0) / 1000)}</p>
-        <p className="hint behavior">{t.behavior2(sc.typing_median_ms || 0, boot.behavior?.[sc.persona]?.typing_ms || 0, sc.app_switches || 0, sc.corrections || 0)}</p>
-        <label className="field">{t.sigTime}
-          <select value={sc.night ? "1" : "0"} onChange={(e) => set({ night: e.target.value === "1" })}>
-            <option value="0">{t.timeNow}</option><option value="1">{t.timeNight}</option>
-          </select>
-        </label>
-        <label className="field">{t.sigPace}
-          <select value={sc.pace} onChange={(e) => set({ pace: Number(e.target.value) })}>
-            <option value="45">{t.paceNormal}</option><option value="180">{t.paceSlow}</option><option value="8">{t.paceFast}</option>
-          </select>
-        </label>
-      </section>
-
-      <section className="phone-wrap">
-        {(() => {
+  const phone = (() => {
           const inCall = tab === "call" && callState && callState.screen === "call";
           const callPill = inCall ? { key: "guard", label: P.tabs.call }
             : tab === "transfer" && flow === "verify" ? { key: "verify", label: P.verify.caller.split(" · ")[0] }
@@ -318,40 +271,163 @@ export default function Client({ boot, lang, t }) {
               <div className={"screen-slot" + (key === "warning" ? " warn-bg" : darkScreen ? " dark-bg" : "")} key={key}>{screenNode}</div>
             </PhoneFrame>
           );
-        })()}
-      </section>
+  })();
 
-      <section className="side">
-        {mode === "call" && <CallPanel state={callState} lang={lang} t={t} />}
-        <div className="panel" hidden={mode === "call"}>
-          <h2>{t.under}</h2>
-          {check ? (
-            <>
-              <div className="risk-row"><span>{t.risk}</span><RiskBadge risk={check.risk} level={check.level} t={t} /></div>
-              <div className="meter"><i className={check.level} style={{ width: `${Math.max(check.risk * 100, 2)}%` }} />
-                <em style={{ left: `${boot.thresholds.pause * 100}%` }} /><em style={{ left: `${boot.thresholds.high * 100}%` }} /></div>
-              <Factors factors={check.factors} lang={lang} t={t} />
-            </>
-          ) : <p className="hint">{t.underEmpty}</p>}
-        </div>
-        <div className="panel guardian">
-          <h2>{t.guardianPhone}</h2>
-          {notes.length === 0 && <p className="hint">{t.guardianEmpty}</p>}
-          {notes.map((n) => (
-            <div key={n.id} className={"note " + n.state}>
-              <small>Senim · {n.time.slice(11, 16)}</small>
-              <p>{t.gText(n)}</p>
-              <b>{t.gState[n.state]}</b>
-              {n.state === "open" && (
-                <div className="yn">
-                  <button onClick={() => guardian(n.id, "stop")}>{t.gStop}</button>
-                  <button className="quiet" onClick={() => guardian(n.id, "confirm")}>{t.gConfirm}</button>
-                </div>
-              )}
+  const S = SH[lang];
+  const navActive = tab === "guardian" ? "protect" : tab === "protect" && protectView === "call" ? "bankcall" : tab;
+  const NAV = [["home", "home"], ["transfer", "send"], ["call", "phone"], ["messages", "message"], ["protect", "shield"], ["history", "clock"], ["bankcall", "bank"]];
+  const idx = prot?.persona === persona.id ? prot : null;
+  const idxRows = [["passkey", Boolean(idx?.passkey_device)], ["trusted", idx?.trusted?.state === "active"], ["locked", (idx?.locked || 0) > 0]];
+  const runScen = (s) => { setScenOpen(false); if (s.go) go(s.go); else applyPreset(s.id); };
+
+  return (
+    <>
+      <div className="shell">
+        <aside className="snav">
+          <nav aria-label={S.phoneCap}>
+            {NAV.map(([id, icon]) => (
+              <button key={id} className={(navActive === id ? "on" : "") + (id === "bankcall" ? " hot" : "")} aria-current={navActive === id ? "page" : undefined} onClick={() => go(id)}>
+                <Icon name={icon} size={20} stroke={1.9} /><span>{S.nav[id]}</span>
+              </button>
+            ))}
+          </nav>
+          <p className="snav-note">{S.navNote}</p>
+          <div className="snav-card">
+            <small>{S.who}</small>
+            <div className="persona-pick">
+              {boot.personas.map((p) => (
+                <button key={p.id} className={sc.persona === p.id ? "on" : ""} onClick={() => { goHome(); set({ persona: p.id }); }}>
+                  <span className="pp-av">{p.name.split(" ").map((w) => w[0]).join("").slice(0, 2)}</span>
+                  <span><b>{p.name.split(" ")[0]}</b><small>{p.age} {S.years}</small></span>
+                </button>
+              ))}
             </div>
-          ))}
+            <p className="hint small">{persona.guardian ? S.guardian(persona.guardian.name, persona.guardian.relation[lang]) : S.noGuardian}</p>
+          </div>
+        </aside>
+
+        <main className="board">
+          <header className="board-head">
+            <span className="bh-av">{persona.name.split(" ").map((w) => w[0]).join("").slice(0, 2)}</span>
+            <div className="bh-name"><h1>{persona.name}</h1><p>{S.sub}</p></div>
+            <div className="bh-bal"><small>{S.available}</small><b>{fmt(balance - (idx?.locked || 0))} ₸</b></div>
+          </header>
+
+          <div className="board-grid">
+            <section className="bcard b-index">
+              <div className="bi-ring"><IndexRing value={idx?.index ?? 0} size={112} stroke={10} /><small>{S.indexOf}</small></div>
+              <div className="bi-body">
+                <h2>{S.indexTitle}</h2>
+                <ul>{idxRows.map(([k, on]) => <li key={k} className={on ? "on" : ""}><i />{S.idx[k]}<small>{on ? S.idxOn : S.idxOff}</small></li>)}</ul>
+                <button className="link-btn" onClick={() => go("protect")}>{S.idxOpen}</button>
+              </div>
+            </section>
+
+            <section className="bcard b-risk">
+              {mode === "call" ? <CallPanel state={callState} lang={lang} t={t} /> : (
+                <>
+                  <h2>{t.under}</h2>
+                  {check ? (
+                    <>
+                      <div className="risk-row"><span>{t.risk}</span><RiskBadge risk={check.risk} level={check.level} t={t} /></div>
+                      <div className="meter"><i className={check.level} style={{ width: `${Math.max(check.risk * 100, 2)}%` }} />
+                        <em style={{ left: `${boot.thresholds.pause * 100}%` }} /><em style={{ left: `${boot.thresholds.high * 100}%` }} /></div>
+                      <Factors factors={check.factors} lang={lang} t={t} />
+                    </>
+                  ) : <p className="hint">{t.underEmpty}</p>}
+                </>
+              )}
+            </section>
+
+            <section className="bcard b-signals">
+              {mode === "call" ? (
+                <>
+                  <h2>{t.callHowTitle}</h2>
+                  <ol className="how">{t.callHow.map((x, i) => <li key={i}>{x}</li>)}</ol>
+                  <p className="hint">{t.callPrivacy}</p>
+                </>
+              ) : (
+                <>
+                  <h2>{S.signals}</h2>
+                  <p className="hint">{t.scenarioHint}</p>
+                  <div className="sig-grid">
+                    <div>
+                      <label className="check"><input type="checkbox" checked={sc.on_call} onChange={(e) => set({ on_call: e.target.checked, unknown_caller: e.target.checked && sc.unknown_caller })} />{t.sigCall}</label>
+                      <label className="check sub"><input type="checkbox" disabled={!sc.on_call} checked={sc.unknown_caller} onChange={(e) => set({ unknown_caller: e.target.checked })} />{t.sigUnknown}</label>
+                      <label className="check"><input type="checkbox" checked={sc.remote_app} onChange={(e) => set({ remote_app: e.target.checked })} />{t.sigRemote}</label>
+                      <label className="check"><input type="checkbox" checked={Boolean(sc.new_device)} onChange={(e) => set({ new_device: e.target.checked, loan: e.target.checked && sc.loan })} />{t.sigNewDevice}</label>
+                      <label className="check sub"><input type="checkbox" disabled={!sc.new_device} checked={Boolean(sc.loan)} onChange={(e) => set({ loan: e.target.checked })} />{t.sigLoan}</label>
+                      <label className="check"><input type="checkbox" checked={Boolean(sc.vpn)} onChange={(e) => set({ vpn: e.target.checked })} />{t.sigVpn}</label>
+                    </div>
+                    <div>
+                      <label className="field">{t.sigTime}
+                        <select value={sc.night ? "1" : "0"} onChange={(e) => set({ night: e.target.value === "1" })}>
+                          <option value="0">{t.timeNow}</option><option value="1">{t.timeNight}</option>
+                        </select>
+                      </label>
+                      <label className="field">{t.sigPace}
+                        <select value={sc.pace} onChange={(e) => set({ pace: Number(e.target.value) })}>
+                          <option value="45">{t.paceNormal}</option><option value="180">{t.paceSlow}</option><option value="8">{t.paceFast}</option>
+                        </select>
+                      </label>
+                      <p className="hint behavior">{t.behavior(Boolean(sc.pasted), (sc.typing_pause_ms || 0) / 1000)}</p>
+                      <p className="hint behavior">{t.behavior2(sc.typing_median_ms || 0, boot.behavior?.[sc.persona]?.typing_ms || 0, sc.app_switches || 0, sc.corrections || 0)}</p>
+                    </div>
+                  </div>
+                </>
+              )}
+            </section>
+
+            <section className="bcard b-guardian">
+              <h2>{t.guardianPhone}</h2>
+              {notes.length === 0 && <p className="hint">{t.guardianEmpty}</p>}
+              {notes.map((n) => (
+                <div key={n.id} className={"note " + n.state}>
+                  <small>Senim · {n.time.slice(11, 16)}</small>
+                  <p>{t.gText(n)}</p>
+                  <b>{t.gState[n.state]}</b>
+                  {n.state === "open" && (
+                    <div className="yn">
+                      <button onClick={() => guardian(n.id, "stop")}>{t.gStop}</button>
+                      <button className="quiet" onClick={() => guardian(n.id, "confirm")}>{t.gConfirm}</button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </section>
+
+            <section className="bcard b-ops">
+              <div className="bc-head"><h2>{S.ops}</h2>{history.length > 0 && <button className="link-btn" onClick={() => go("history")}>{S.opsAll}</button>}</div>
+              {history.length ? <ul className="ops-list">{history.slice(0, 6).map((tx) => <TxRow key={tx.id} tx={tx} P={P} />)}</ul>
+                : <p className="hint">{S.opsEmpty}</p>}
+            </section>
+          </div>
+        </main>
+
+        <section className="sphone" aria-label={S.phoneCap}>
+          <div className="sphone-cap"><b>{S.phoneCap}</b><small>{S.phoneHint}</small></div>
+          {phone}
+        </section>
+      </div>
+
+      {scenOpen && (
+        <div className="modal-back" onClick={(e) => { if (e.target === e.currentTarget) setScenOpen(false); }}>
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="scen-title">
+            <div className="modal-head">
+              <div><h2 id="scen-title">{S.scenTitle}</h2><p>{S.scenLead}</p></div>
+              <button className="modal-x" onClick={() => setScenOpen(false)} aria-label={S.close}><Icon name="close" size={18} stroke={2.2} /></button>
+            </div>
+            <ul className="scen-list">
+              {SCEN_ORDER.map((s) => {
+                const [title, desc] = s.go ? S.scen[s.id] : [t[s.id], S.scen[s.id]];
+                return (
+                  <li key={s.id}><button onClick={() => runScen(s)}><i className={"dot " + s.tone} /><span><b>{title}</b><small>{desc}</small></span></button></li>
+                );
+              })}
+            </ul>
+          </div>
         </div>
-      </section>
-    </main>
+      )}
+    </>
   );
 }
