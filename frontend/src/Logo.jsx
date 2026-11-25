@@ -1,0 +1,11 @@
+import React from "react";
+
+// Senim mark: a shield (protection, trust) holding a phone handset, with two amber sound waves:
+// "we listen to the call and keep the money safe". Original artwork, no bank's brand in it.
+export const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><defs><linearGradient id="sg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1E3A6E"/><stop offset="1" stop-color="#0F1B3D"/></linearGradient></defs><path d="M24 3.5 41 9.6v13.1c0 10.4-7 18.3-17 21.8-10-3.5-17-11.4-17-21.8V9.6z" fill="url(#sg)" stroke="#3A5A96" stroke-width="1.2"/><path d="M15.6 15.2h3.6l1.8 4.8-2.4 1.8a13.2 13.2 0 0 0 6.6 6.6l1.8-2.4 4.8 1.8v3.6a2.4 2.4 0 0 1-2.4 2.4A19.2 19.2 0 0 1 13.2 17.6a2.4 2.4 0 0 1 2.4-2.4Z" fill="#FFFFFF"/><path d="M27.4 13.6a7.6 7.6 0 0 1 6.8 6.8M27.6 8.9a12.4 12.4 0 0 1 11 11" fill="none" stroke="#E0A526" stroke-width="2.6" stroke-linecap="round"/></svg>`;
+
+export const LOGO_DATA_URI = "data:image/svg+xml," + encodeURIComponent(LOGO_SVG);
+
+export default function Logo({ size = 40, label }) {
+  return <img className="logo-mark" src={LOGO_DATA_URI} width={size} height={size} alt={label || ""} aria-hidden={label ? undefined : "true"} />;
+}

@@ -3,6 +3,8 @@ import { STR, api, VIRTUAL } from "./i18n.js";
 import { SH } from "./shell.js";
 import Client from "./Client.jsx";
 import Analyst from "./Analyst.jsx";
+import Integration from "./Integration.jsx";
+import Logo from "./Logo.jsx";
 
 export default function App() {
   const [lang, setLang] = useState("kk");
@@ -26,7 +28,7 @@ export default function App() {
     <div className={"app mode-" + tab}>
       <header className="top">
         <div className="brand">
-          <span className="logo" aria-hidden="true"><i /><i /></span>
+          <Logo size={40} />
           <div>
             <strong>Senim</strong>
             <small>{t.tagline}</small>
@@ -36,6 +38,7 @@ export default function App() {
           <nav className="mode-switch" aria-label="Senim">
             <button className={tab === "client" ? "on" : ""} aria-pressed={tab === "client"} onClick={() => setTab("client")}>{S.modeClient}</button>
             <button className={tab === "analyst" ? "on" : ""} aria-pressed={tab === "analyst"} onClick={() => setTab("analyst")}>{S.modeAnalyst}</button>
+            <button className={tab === "integration" ? "on" : ""} aria-pressed={tab === "integration"} onClick={() => setTab("integration")}>{S.modeIntegration}</button>
           </nav>
           {boot && <span className={"pill " + (boot.llm ? "ok" : "")} title={VIRTUAL ? t.virtualNote : undefined}>{boot.llm ? t.llmOn : t.llmOff}</span>}
           <div className="lang">
@@ -53,9 +56,13 @@ export default function App() {
         </div>
       </header>
       {boot === false && <p className="error">API қолжетімсіз · API недоступен (backend: uvicorn main:app --port 8000)</p>}
-      {boot && (tab === "client"
+      {tab === "integration" ? <Integration lang={lang} /> : boot && (tab === "client"
         ? <Client key={epoch} boot={boot} lang={lang} t={t} scenOpen={scenOpen} setScenOpen={setScenOpen} />
         : <Analyst key={epoch} lang={lang} t={t} boot={boot} />)}
+      <footer className="site-foot">
+        <Logo size={20} />
+        <span>{S.concept}</span>
+      </footer>
     </div>
   );
 }

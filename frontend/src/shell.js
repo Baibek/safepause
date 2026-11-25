@@ -2,7 +2,8 @@
 // the analyst's situation centre. The phone app keeps its own words in ./phone/strings.js.
 export const SH = {
   kk: {
-    modeClient: "Клиент", modeAnalyst: "Аналитик", scenarios: "Сценарийлер", reset: "Тазарту",
+    modeClient: "Клиент", modeAnalyst: "Аналитик", modeIntegration: "Банкке енгізу", scenarios: "Сценарийлер",
+    concept: "Senim — ITU Hackathon 2026 үшін концепт, Банк ЦентрКредит кейсі (FINTECH CASE: банкингтегі инновациялар және киберқауіпсіздік). Банктің ресми өнімі емес; барлық клиенттер, шоттар мен сандар синтетикалық.", reset: "Тазарту",
     nav: { home: "Басты бет", transfer: "Аударымдар", payments: "Төлемдер", call: "Қоңырау", messages: "Тексеріп бер", protect: "Қорғаныс", history: "Тарих", bankcall: "Бұл шынымен банк пе?" },
     navNote: "Мәзір оң жақтағы телефонды басқарады.",
     who: "Демо клиент", years: "жас",
@@ -37,7 +38,8 @@ export const SH = {
     },
   },
   ru: {
-    modeClient: "Клиент", modeAnalyst: "Аналитик", scenarios: "Сценарии", reset: "Сбросить",
+    modeClient: "Клиент", modeAnalyst: "Аналитик", modeIntegration: "Внедрение в банк", scenarios: "Сценарии",
+    concept: "Senim — концепт для ITU Hackathon 2026, кейс Банка ЦентрКредит (FINTECH CASE: инновации в банкинге и кибербезопасность). Не официальный продукт банка; все клиенты, счета и цифры синтетические.", reset: "Сбросить",
     nav: { home: "Главная", transfer: "Переводы", payments: "Платежи", call: "Звонок", messages: "Проверить", protect: "Защита", history: "История", bankcall: "Это правда банк?" },
     navNote: "Меню управляет телефоном справа.",
     who: "Демо-клиент", years: "лет",
