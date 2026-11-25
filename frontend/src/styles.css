@@ -389,3 +389,4 @@ h4.first { margin-top: 6px; }
   .bh-bal { text-align: left; } .top-right { margin-left: 0; }
 }
 @media (max-width: 1200px) { .top .pill { display: none; } }
+.b-index { align-self: start; }

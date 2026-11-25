@@ -2,6 +2,7 @@
 import { evaluate as policyEvaluate, POLICY } from "./policy.js";
 import * as S from "./saqshy.js";
 import * as WA from "./webauthn.js";
+import * as B from "./bank.js";
 import TEXTS from "../../../shared/saqshy_texts.json";
 // The LLM is reached through the Claude artifact runtime (`sample`); without it, templates are used.
 import data from "./data.json";
@@ -426,7 +427,13 @@ const routes = {
   },
 
   async "/api/graph"() { return graph; },
-  async "/api/demo/reset"() { S.reset(); S.flagFromGraph(graph.nodes, POLICY.auto_drop); syncGuardians(); seed(); return { ok: true }; },
+  async "/api/bank/pay"(b) {
+    const p = personaOr404(b.persona);
+    let op;
+    try { op = B.pay(p.id, bankState(p).available, b, S.now()); } catch (e) { throw fail(400, e.message); }
+    return { operation: op, bank: bankState(p) };
+  },
+  async "/api/demo/reset"() { S.reset(); B.reset(); S.flagFromGraph(graph.nodes, POLICY.auto_drop); syncGuardians(); seed(); return { ok: true }; },
 
   // ---------------------------------------------------------------- Senim Saqshy (same as backend/main.py)
   async "/api/protect/trusted/invite"(b) {
@@ -594,8 +601,15 @@ function protection(pid) {
     index_parts: S.INDEX_POINTS, call: S.SESSIONS[pid] || null };
 }
 
+function bankState(p) {
+  const txs = [...TX.values()].filter((t) => t.live && t.client === p.name);
+  const names = Object.fromEntries(recipients.map((r) => [r.account, r.name]));
+  return B.state(p, S.client(p.id).locked, txs, names, S.now());
+}
+
 // routes with an id at the end of the path
 const PREFIX = {
+  "/api/bank/": (pid) => (pid === "catalogue" ? B.catalogue() : bankState(personaOr404(pid))),
   "/api/protect/": (pid) => protection(pid),
   "/api/callstatus/": (pid) => { personaOr404(pid); const st = S.SESSIONS[pid]; return { active: Boolean(st), staff: st ? { ...st } : null }; },
   "/api/client/history/": (pid) => {

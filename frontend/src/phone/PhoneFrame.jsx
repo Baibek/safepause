@@ -16,6 +16,28 @@ const PATHS = {
   pause: <><path d="M9 6v12M15 6v12" /></>,
   card: <><rect x="3" y="6" width="18" height="12" rx="2.5" /><path d="M3 10h18" /></>,
   bank: <><path d="M4 9.5 12 4l8 5.5" /><path d="M5.5 10v8M10 10v8M14 10v8M18.5 10v8M3.5 20h17" /></>,
+  // everyday banking categories
+  cart: <><path d="M3.5 4.5h2l2.2 10.2h10.1l1.9-7.2H6.6" /><circle cx="9.5" cy="18.8" r="1.4" /><circle cx="16.5" cy="18.8" r="1.4" /></>,
+  coffee: <><path d="M5 9h11v5a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5z" /><path d="M16 10.5h1.5a2.5 2.5 0 0 1 0 5H16" /><path d="M8.5 3.5v2.5M11.5 3.5v2.5" /></>,
+  pill: <><rect x="3.8" y="8.6" width="16.4" height="6.8" rx="3.4" transform="rotate(-45 12 12)" /><path d="m9.6 9.6 4.8 4.8" /></>,
+  bag: <><path d="M5 8h14l-1 12H6z" /><path d="M9 10V7a3 3 0 0 1 6 0v3" /></>,
+  car: <><path d="M5 16.5V12l2-5h10l2 5v4.5" /><path d="M4 12h16v4.5H4z" /><circle cx="8" cy="18" r="1.3" /><circle cx="16" cy="18" r="1.3" /></>,
+  bolt: <path d="M13 3 5.5 13.5H12L11 21l7.5-10.5H12z" />,
+  mobile: <><rect x="7" y="3" width="10" height="18" rx="2.5" /><path d="M11 17.5h2" /></>,
+  wifi: <><path d="M3.5 9.5a12 12 0 0 1 17 0" /><path d="M6.5 12.8a7.6 7.6 0 0 1 11 0" /><path d="M9.5 16a3.2 3.2 0 0 1 5 0" /><circle cx="12" cy="19" r=".6" /></>,
+  ticket: <><path d="M4 7.5h16v3a1.8 1.8 0 0 0 0 3.5v3H4v-3a1.8 1.8 0 0 0 0-3.5z" /><path d="M14 7.5v10" strokeDasharray="1.6 2" /></>,
+  book: <><path d="M4.5 5.5c2.5-1 5-1 7.5.5 2.5-1.5 5-1.5 7.5-.5v13c-2.5-1-5-1-7.5.5-2.5-1.5-5-1.5-7.5-.5z" /><path d="M12 6v13" /></>,
+  download: <><path d="M12 4v11" /><path d="m7 10.5 5 5 5-5" /><path d="M5 20h14" /></>,
+  briefcase: <><rect x="3.5" y="7.5" width="17" height="12" rx="2" /><path d="M9 7.5V5.8A1.3 1.3 0 0 1 10.3 4.5h3.4A1.3 1.3 0 0 1 15 5.8v1.7" /><path d="M3.5 12.5h17" /></>,
+  gift: <><rect x="4" y="9" width="16" height="11" rx="1.5" /><path d="M3 9h18M12 9v11" /><path d="M12 9C10.5 5 7 5 7 7.2 7 9 12 9 12 9zM12 9c1.5-4 5-4 5-1.8C17 9 12 9 12 9z" /></>,
+  qr: <><rect x="4" y="4" width="6" height="6" rx="1" /><rect x="14" y="4" width="6" height="6" rx="1" /><rect x="4" y="14" width="6" height="6" rx="1" /><path d="M14 14h2.5v2.5H14zM18 18h2M20 14v2M14 19.5h2" /></>,
+  grid: <><rect x="4" y="4" width="6.5" height="6.5" rx="2" /><rect x="13.5" y="4" width="6.5" height="6.5" rx="2" /><rect x="4" y="13.5" width="6.5" height="6.5" rx="2" /><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="2" /></>,
+  wallet: <><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H18v3" /><rect x="4" y="7.5" width="16.5" height="12" rx="2.5" /><path d="M16 13.5h1.5" /></>,
+  chart: <><path d="M4.5 19.5h15" /><path d="M7 16v-4M11 16V8M15 16v-6M19 16V6" /></>,
+  down: <path d="m6 9 6 6 6-6" />,
+  eye: <><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" /><circle cx="12" cy="12" r="3" /></>,
+  plus: <path d="M12 5v14M5 12h14" />,
+  lock: <><rect x="5" y="10.5" width="14" height="9.5" rx="2" /><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5" /></>,
 };
 
 export function Icon({ name, size = 22, stroke = 1.8 }) {

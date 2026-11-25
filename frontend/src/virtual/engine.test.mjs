@@ -191,3 +191,37 @@ test("report holds an unsent transfer for business days", async () => {
   assert.equal(rep.hold.business_days, 5);
   assert.equal((await ok(`/api/transfer/${r.tx_id}`)).status, "afc_hold");
 });
+
+test("bank: products and operations newest first, same as backend/test_bank.py", async () => {
+  const b = await ok("/api/bank/aigul");
+  assert.equal(b.card.last4, "4417");
+  const times = b.operations.map((o) => o.time);
+  assert.deepEqual(times, [...times].sort().reverse());
+  assert.equal(b.available, b.balance - b.locked);
+  assert.ok(b.spend.grocery > 0);
+});
+
+test("bank: utility payment and QR purchase with cashback; bad ones refused", async () => {
+  const before = await ok("/api/bank/daniyar");
+  const r = await ok("/api/bank/pay", { persona: "daniyar", kind: "payment", category: "utilities", provider: "Тазасу · су", account: "000123456", amount: 4200 });
+  assert.equal(r.operation.account, "3456");
+  assert.equal(r.bank.balance, before.balance - 4200);
+  assert.equal(r.bank.operations[0].id, r.operation.id);
+  const q = await ok("/api/bank/pay", { persona: "daniyar", kind: "purchase", shop: "bereke", amount: 10000 });
+  assert.equal(q.operation.cashback, 500);
+  assert.equal(q.bank.cashback, before.cashback + 500);
+  assert.equal((await err("/api/bank/pay", { persona: "aigul", kind: "purchase", shop: "nope", amount: 100 })).status, 400);
+  assert.equal((await err("/api/bank/pay", { persona: "aigul", kind: "payment", category: "mobile", provider: "Дала Мобайл", account: "", amount: 100 })).status, 400);
+  const a = await ok("/api/bank/aigul");
+  assert.equal((await err("/api/bank/pay", { persona: "aigul", kind: "purchase", shop: "qala", amount: a.available + 1 })).status, 400);
+});
+
+test("bank: an approved transfer shows up and lowers the balance", async () => {
+  const before = (await ok("/api/bank/aigul")).balance;
+  const tx = await transfer({ recipient_id: "family", amount: 15000 });
+  assert.equal(tx.action, "approve");
+  const b = await ok("/api/bank/aigul");
+  assert.equal(b.balance, before - 15000);
+  assert.equal(b.operations[0].category, "transfer_out");
+  assert.ok(b.operations[0].title.kk.startsWith("Мадина"));
+});

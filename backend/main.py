@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import bank
 import graph as graph_mod
 import llm
 import policy
@@ -235,7 +236,7 @@ security.install_log_masking()
 
 def owner_of(method, path, data):
     """The persona a request is about: from the path (GET), the body, the transfer or the notification it names."""
-    m = re.match(r"^/api/(?:protect|callstatus|client/history)/([^/]+)$", path) if method == "GET" else None
+    m = re.match(r"^/api/(?:protect|callstatus|client/history|bank)/([^/]+)$", path) if method == "GET" else None
     if m:
         return m.group(1)
     m = re.match(r"^/api/transfer/([^/]+)$", path) if method == "GET" else None
@@ -694,6 +695,45 @@ def client_history(pid: str):
     return sorted((t for t in TX.values() if t.get("live") and t["client"] == p["name"]), key=lambda t: t["time"], reverse=True)
 
 
+# ---------------------------------------------------------------- everyday banking (synthetic)
+class PayIn(BaseModel):
+    persona: str
+    kind: str                       # payment | purchase
+    amount: float
+    category: Optional[str] = None
+    provider: Optional[str] = None
+    account: Optional[str] = None
+    shop: Optional[str] = None
+
+
+def bank_state(p):
+    txs = [t for t in TX.values() if t.get("live") and t["client"] == p["name"]]
+    names = {r["account"]: r["name"] for r in RECIPIENTS}
+    return bank.state(p, saqshy.client(p["id"])["locked"], txs, names, saqshy.now())
+
+
+@app.get("/api/bank/catalogue")
+def bank_catalogue():
+    return bank.catalogue()
+
+
+@app.get("/api/bank/{pid}")
+def bank_get(pid: str):
+    """The client's card, deposits, accounts, spending by category and operations (newest first)."""
+    return bank_state(persona_or_404(pid))
+
+
+@app.post("/api/bank/pay")
+def bank_pay(body: PayIn):
+    p = persona_or_404(body.persona)
+    try:
+        op = bank.pay(p["id"], bank_state(p)["available"], body.kind, body.amount, saqshy.now(),
+                      category=body.category, provider=body.provider, account=body.account, shop=body.shop)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"operation": op, "bank": bank_state(p)}
+
+
 @app.post("/api/guardian/respond")
 def guardian_respond(body: GuardianIn):
     n = next((x for x in NOTIFICATIONS if x["id"] == body.id), None)
@@ -745,6 +785,7 @@ def graph():
 @app.post("/api/demo/reset")
 def reset():
     saqshy.reset()
+    bank.reset()
     saqshy.flag_from_graph(GRAPH["nodes"], policy.POLICY["auto_drop"])
     sync_guardians()
     seed()

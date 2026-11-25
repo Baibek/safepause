@@ -2,7 +2,7 @@
 // message checks) stays in ../i18n.js and is passed in as `t`.
 export const PH = {
   kk: {
-    tabs: { home: "Басты", transfer: "Аударым", call: "Қоңырау", messages: "Тексеру", history: "Тарих", protect: "Қорғаныс" },
+    tabs: { home: "Басты", transfer: "Аударым", payments: "Төлемдер", call: "Қоңырау", messages: "Тексеру", history: "Тарих", protect: "Қорғаныс" },
     hello: (n) => `Сәлем, ${n}`,
     available: "Қолжетімді қаражат",
     card: "Карта •••• 4417",
@@ -92,7 +92,7 @@ export const PH = {
     },
   },
   ru: {
-    tabs: { home: "Главная", transfer: "Перевод", call: "Звонок", messages: "Проверка", history: "История", protect: "Защита" },
+    tabs: { home: "Главная", transfer: "Перевод", payments: "Платежи", call: "Звонок", messages: "Проверка", history: "История", protect: "Защита" },
     hello: (n) => `Привет, ${n}`,
     available: "Доступно",
     card: "Карта •••• 4417",

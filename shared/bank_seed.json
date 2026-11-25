@@ -1,0 +1,69 @@
+{
+ "_doc": "Synthetic everyday banking for the demo phone: products, past operations, payment catalogue and QR shops. All names are invented. Read by backend/bank.py and frontend/src/virtual/bank.js; tests in backend/test_bank.py and frontend/src/virtual/engine.test.mjs.",
+ "categories": {
+  "grocery":      {"icon": "cart",     "tone": "green",  "kk": "Супермаркет",        "ru": "Супермаркеты"},
+  "cafe":         {"icon": "coffee",   "tone": "amber",  "kk": "Кафе",               "ru": "Кафе"},
+  "pharmacy":     {"icon": "pill",     "tone": "teal",   "kk": "Дәріхана",           "ru": "Аптеки"},
+  "shop":         {"icon": "bag",      "tone": "violet", "kk": "Сатып алу",          "ru": "Покупки"},
+  "taxi":         {"icon": "car",      "tone": "amber",  "kk": "Такси",              "ru": "Такси"},
+  "utilities":    {"icon": "bolt",     "tone": "blue",   "kk": "Коммуналдық",        "ru": "Коммуналка"},
+  "mobile":       {"icon": "mobile",   "tone": "violet", "kk": "Ұялы байланыс",      "ru": "Мобильная связь"},
+  "internet":     {"icon": "wifi",     "tone": "blue",   "kk": "Интернет",           "ru": "Интернет"},
+  "fines":        {"icon": "ticket",   "tone": "red",    "kk": "Айыппұлдар",         "ru": "Штрафы"},
+  "education":    {"icon": "book",     "tone": "teal",   "kk": "Білім",              "ru": "Образование"},
+  "transfer_out": {"icon": "send",     "tone": "blue",   "kk": "Аударым",            "ru": "Перевод"},
+  "transfer_in":  {"icon": "download", "tone": "green",  "kk": "Кіріс аударым",      "ru": "Входящий перевод"},
+  "income":       {"icon": "briefcase","tone": "green",  "kk": "Табыс",              "ru": "Доход"},
+  "cashback":     {"icon": "gift",     "tone": "green",  "kk": "Кешбэк",             "ru": "Кешбэк"}
+ },
+ "payments": [
+  {"category": "mobile",    "account": {"kk": "Телефон нөмірі", "ru": "Номер телефона"}, "providers": ["Дала Мобайл", "Нұр Телеком", "Алтын Мобайл"]},
+  {"category": "utilities", "account": {"kk": "Дербес шот", "ru": "Лицевой счёт"}, "providers": ["Қала Энерго · жарық", "Тазасу · су", "Жылу Сервис · жылу", "Газ Сервис · газ"]},
+  {"category": "internet",  "account": {"kk": "Келісімшарт нөмірі", "ru": "Номер договора"}, "providers": ["Нұр Телеком · үй интернеті", "Дала Нет"]},
+  {"category": "fines",     "account": {"kk": "Қаулы нөмірі", "ru": "Номер постановления"}, "providers": ["Жол айыппұлдары"]},
+  {"category": "education", "account": {"kk": "Бала коды", "ru": "Код ребёнка"}, "providers": ["«Балапан» балабақшасы", "№12 мектеп асханасы"]}
+ ],
+ "shops": [
+  {"id": "bereke",  "name": "Супермаркет «Береке»", "category": "grocery",  "amount": 12480},
+  {"id": "dan",     "name": "Кофейня «Дән»",        "category": "cafe",     "amount": 2300},
+  {"id": "shipa",   "name": "Дәріхана «Шипа»",      "category": "pharmacy", "amount": 6750},
+  {"id": "qala",    "name": "Киім дүкені «Қала»",   "category": "shop",     "amount": 24900}
+ ],
+ "cashback_rates": {"grocery": 0.05, "pharmacy": 0.03, "cafe": 0.02, "shop": 0.01},
+ "clients": {
+  "aigul": {
+   "card": {"name": "Senim Card", "last4": "4417", "system": "VISA"},
+   "cashback": 3120,
+   "deposits": [{"name": {"kk": "«Жинақ» депозиті", "ru": "Депозит «Жинақ»"}, "amount": 1200000, "rate": 14.5}],
+   "accounts": [{"name": {"kk": "Валюта шоты", "ru": "Валютный счёт"}, "amount": 850, "currency": "$"}],
+   "operations": [
+    {"days_ago": 0, "time": "09:12", "category": "grocery",   "title": "Супермаркет «Береке»", "amount": -8640},
+    {"days_ago": 1, "time": "18:40", "category": "pharmacy",  "title": "Дәріхана «Шипа»",      "amount": -4320},
+    {"days_ago": 1, "time": "11:05", "category": "cashback",  "title": {"kk": "Қараша кешбэгі", "ru": "Кешбэк за ноябрь"}, "amount": 3120},
+    {"days_ago": 2, "time": "10:30", "category": "utilities", "title": "Қала Энерго · жарық",   "amount": -7450},
+    {"days_ago": 3, "time": "08:00", "category": "income",    "title": {"kk": "Зейнетақы", "ru": "Пенсия"}, "amount": 185000},
+    {"days_ago": 4, "time": "16:20", "category": "mobile",    "title": "Дала Мобайл",           "amount": -2990},
+    {"days_ago": 5, "time": "12:45", "category": "transfer_out", "title": "Мадина (қызым)",     "amount": -15000},
+    {"days_ago": 6, "time": "19:10", "category": "grocery",   "title": "Супермаркет «Береке»", "amount": -11220},
+    {"days_ago": 8, "time": "14:00", "category": "utilities", "title": "Тазасу · су",           "amount": -3180}
+   ]
+  },
+  "daniyar": {
+   "card": {"name": "Senim Card", "last4": "8802", "system": "Mastercard"},
+   "cashback": 5470,
+   "deposits": [{"name": {"kk": "«Мақсат» депозиті", "ru": "Депозит «Мақсат»"}, "amount": 450000, "rate": 15.0}],
+   "accounts": [{"name": {"kk": "Брокерлік шот", "ru": "Брокерский счёт"}, "amount": 120000, "currency": "₸"}],
+   "operations": [
+    {"days_ago": 0, "time": "08:35", "category": "cafe",      "title": "Кофейня «Дән»",        "amount": -1900},
+    {"days_ago": 0, "time": "08:05", "category": "taxi",      "title": "Такси «Жол»",          "amount": -2350},
+    {"days_ago": 1, "time": "20:15", "category": "grocery",   "title": "Супермаркет «Береке»", "amount": -18450},
+    {"days_ago": 2, "time": "16:50", "category": "income",    "title": {"kk": "Жалақы · «Тех Сервис» ЖШС", "ru": "Зарплата · ТОО «Тех Сервис»"}, "amount": 620000},
+    {"days_ago": 2, "time": "12:00", "category": "transfer_in", "title": "Айгүл С.",            "amount": 20000},
+    {"days_ago": 3, "time": "21:30", "category": "shop",      "title": "Киім дүкені «Қала»",   "amount": -24900},
+    {"days_ago": 4, "time": "10:10", "category": "internet",  "title": "Нұр Телеком · үй интернеті", "amount": -6990},
+    {"days_ago": 6, "time": "09:40", "category": "fines",     "title": "Жол айыппұлдары",       "amount": -5520},
+    {"days_ago": 7, "time": "13:25", "category": "mobile",    "title": "Нұр Телеком",           "amount": -3990}
+   ]
+  }
+ }
+}

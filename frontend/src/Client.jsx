@@ -10,6 +10,7 @@ import PhoneFrame, { TabBar } from "./phone/PhoneFrame.jsx";
 import { PH } from "./phone/strings.js";
 import { HomeScreen, AnalysisScreen, WarningScreen, DialogScreen, ResultScreen, GuardianScreen, HistoryScreen, MessagesScreen, TxRow, IndexRing } from "./phone/screens.jsx";
 import { SH, SCEN_ORDER } from "./shell.js";
+import { BankHome, PaymentsScreen, OpsScreen, OpRow, BK } from "./phone/bank.jsx";
 import { STAGES } from "./call/detector.js";
 
 const PRESETS = {
@@ -98,7 +99,12 @@ export default function Client({ boot, lang, t, scenOpen = false, setScenOpen = 
   const persona = boot.personas.find((p) => p.id === sc.persona);
   setSessionPersona(sc.persona);   // the server session acts for the client chosen in the scenario panel
   const rec = boot.recipients.find((r) => r.id === sc.recipient);
-  const balance = persona.balance - (spent[persona.id] || 0);
+  // everyday banking: card, deposits, operations; the server counts approved transfers and payments
+  const [bank, setBank] = useState(null);
+  const [cat, setCat] = useState(null);
+  useEffect(() => { api("/api/bank/catalogue").then(setCat).catch(() => {}); }, []);
+  const loadBank = () => api(`/api/bank/${persona.id}`).then(setBank).catch(() => {});
+  const balance = bank?.persona === persona.id ? bank.balance : persona.balance - (spent[persona.id] || 0);
   const set = (patch) => setSc((s) => ({ ...s, ...patch }));
 
   const loadNotes = () => api("/api/guardian/notifications").then(setNotes).catch(() => {});
@@ -110,7 +116,7 @@ export default function Client({ boot, lang, t, scenOpen = false, setScenOpen = 
       .then(setHistory)
       .catch(() => {}).finally(() => setHistoryLoading(false));
   };
-  useEffect(() => { loadHistory(); }, [tab, persona.name, final, check]);   // the board lists them on every screen
+  useEffect(() => { loadHistory(); loadBank(); }, [tab, persona.name, final, check]);   // the board lists them on every screen
 
   const resetFlow = () => { setFlow("form"); setCheck(null); setChat([]); setFinal(null); setErr(""); setBusy(false); };
   const [protectView, setProtectView] = useState("main");
@@ -123,7 +129,10 @@ export default function Client({ boot, lang, t, scenOpen = false, setScenOpen = 
     poll(); const i = setInterval(poll, 3000);
     return () => clearInterval(i);
   }, [sc.persona]);
+  const [payView, setPayView] = useState("main");
+  const [payNonce, setPayNonce] = useState(0);
   const go = (to) => {
+    if (to === "qr" || to === "payments") { setPayView(to === "qr" ? "qr" : "main"); setPayNonce((n) => n + 1); setTab("payments"); return; }
     if (to === "transfer") { resetFlow(); setTStep("menu"); }
     if (to === "bankcall") { setProtectView("call"); setProtectNonce((n) => n + 1); setTab("protect"); return; }   // "Is this really the bank?"
     if (to === "protect") { setProtectView("main"); setProtectNonce((n) => n + 1); }
@@ -205,7 +214,7 @@ export default function Client({ boot, lang, t, scenOpen = false, setScenOpen = 
           const note = check && notes.find((n) => n.tx_id === check.tx_id);
           const tabs = [
             { id: "home", icon: "home", label: P.tabs.home }, { id: "transfer", icon: "send", label: P.tabs.transfer },
-            { id: "call", icon: "phone", label: P.tabs.call }, { id: "messages", icon: "message", label: P.tabs.messages },
+            { id: "payments", icon: "wallet", label: P.tabs.payments }, { id: "history", icon: "clock", label: P.tabs.history },
             { id: "protect", icon: "shield", label: P.tabs.protect },
           ];
           const callAlert = scamCallMinutes != null && (
@@ -218,10 +227,13 @@ export default function Client({ boot, lang, t, scenOpen = false, setScenOpen = 
           let screenNode, key;
           if (tab === "home") {
             key = "home";
-            screenNode = <HomeScreen persona={persona} balance={balance} P={P} t={t} history={history} scamCallMinutes={scamCallMinutes}
-              onDismissCall={() => setScamCallAt(null)} go={go} prot={prot} />;
+            screenNode = <BankHome persona={persona} bank={bank?.persona === persona.id ? bank : null} cat={cat} P={P} t={t} lang={lang}
+              scamCallMinutes={scamCallMinutes} onDismissCall={() => setScamCallAt(null)} go={go} prot={prot} />;
           } else if (tab === "history") {
-            key = "history"; screenNode = <HistoryScreen history={history} P={P} loading={historyLoading} onBack={() => setTab("home")} />;
+            key = "history"; screenNode = <OpsScreen bank={bank?.persona === persona.id ? bank : null} cat={cat} lang={lang} P={P} />;
+          } else if (tab === "payments") {
+            key = "payments-" + payNonce;
+            screenNode = <PaymentsScreen persona={persona} bank={bank} cat={cat} lang={lang} P={P} initial={payView} onPaid={setBank} goHome={goHome} />;
           } else if (tab === "guardian") {
             key = "guardian";
             screenNode = <GuardianScreen persona={persona} notes={notes} P={P} t={t} lang={lang} onRespond={guardian} trusted={prot?.persona === persona.id ? prot.trusted : undefined} />;
@@ -260,7 +272,7 @@ export default function Client({ boot, lang, t, scenOpen = false, setScenOpen = 
           const tone = darkScreen || key === "warning" ? "light" : "dark";
           return (
             <PhoneFrame tone={tone} call={callPill}
-              tabBar={showTabs && <TabBar tabs={tabs} active={tab === "guardian" ? "protect" : tab === "history" ? "home" : tab} onChange={go} />}>
+              tabBar={showTabs && <TabBar tabs={tabs} active={tab === "guardian" ? "protect" : tab} onChange={go} />}>
               {bankCall && tab !== "call" && bankSeen !== bankCall.since && (
                 <div className="push-banner" role="status">
                   <span className="pb-ic"><Icon name="phone" size={16} stroke={2.4} /></span>
@@ -275,7 +287,7 @@ export default function Client({ boot, lang, t, scenOpen = false, setScenOpen = 
 
   const S = SH[lang];
   const navActive = tab === "guardian" ? "protect" : tab === "protect" && protectView === "call" ? "bankcall" : tab;
-  const NAV = [["home", "home"], ["transfer", "send"], ["call", "phone"], ["messages", "message"], ["protect", "shield"], ["history", "clock"], ["bankcall", "bank"]];
+  const NAV = [["home", "home"], ["transfer", "send"], ["payments", "wallet"], ["call", "phone"], ["messages", "message"], ["protect", "shield"], ["history", "clock"], ["bankcall", "bank"]];
   const idx = prot?.persona === persona.id ? prot : null;
   const idxRows = [["passkey", Boolean(idx?.passkey_device)], ["trusted", idx?.trusted?.state === "active"], ["locked", (idx?.locked || 0) > 0]];
   const runScen = (s) => { setScenOpen(false); if (s.go) go(s.go); else applyPreset(s.id); };
@@ -310,7 +322,7 @@ export default function Client({ boot, lang, t, scenOpen = false, setScenOpen = 
           <header className="board-head">
             <span className="bh-av">{persona.name.split(" ").map((w) => w[0]).join("").slice(0, 2)}</span>
             <div className="bh-name"><h1>{persona.name}</h1><p>{S.sub}</p></div>
-            <div className="bh-bal"><small>{S.available}</small><b>{fmt(balance - (idx?.locked || 0))} ₸</b></div>
+            <div className="bh-bal"><small>{S.available}</small><b>{fmt(bank?.persona === persona.id ? bank.available : balance - (idx?.locked || 0))} ₸</b></div>
           </header>
 
           <div className="board-grid">
@@ -397,8 +409,8 @@ export default function Client({ boot, lang, t, scenOpen = false, setScenOpen = 
             </section>
 
             <section className="bcard b-ops">
-              <div className="bc-head"><h2>{S.ops}</h2>{history.length > 0 && <button className="link-btn" onClick={() => go("history")}>{S.opsAll}</button>}</div>
-              {history.length ? <ul className="ops-list">{history.slice(0, 6).map((tx) => <TxRow key={tx.id} tx={tx} P={P} />)}</ul>
+              <div className="bc-head"><h2>{S.ops}</h2><button className="link-btn" onClick={() => go("history")}>{S.opsAll}</button></div>
+              {bank?.persona === persona.id ? <ul className="bk-ops">{bank.operations.slice(0, 6).map((op) => <OpRow key={op.id} op={op} cat={cat} lang={lang} P={P} B={BK[lang]} />)}</ul>
                 : <p className="hint">{S.opsEmpty}</p>}
             </section>
           </div>
