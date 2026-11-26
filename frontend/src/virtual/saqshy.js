@@ -76,4 +76,24 @@ export function nameCheck(recipientId, typed) {
 
 export const staff = (id) => SEED.staff.find((s) => s.id === id) || null;
 
+// Call Status, as backend/saqshy.py: a session closes by itself after the TTL, and with the incoming number
+// it counts only if the bank is calling from that line
+const digits = (line) => String(line || "").replace(/[^0-9•]/g, "");
+export function session(pid) {
+  const st = SESSIONS[pid];
+  const ttl = SEED.call_status?.session_ttl_min ?? 30;
+  if (st && now() - new Date(st.since) > ttl * 60_000) {
+    delete SESSIONS[pid];
+    audit(st.name, "staff", "call_ended", pid, "expired");
+    return null;
+  }
+  return st || null;
+}
+export function callStatus(pid, line = null) {
+  const st = session(pid);
+  if (!st) return { active: false, staff: null };
+  if (line != null && digits(line) !== digits(st.line)) return { active: false, staff: null, mismatch: true, line: st.line };
+  return { active: true, staff: { ...st } };
+}
+
 reset();

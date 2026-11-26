@@ -225,3 +225,14 @@ test("bank: an approved transfer shows up and lowers the balance", async () => {
   assert.equal(b.operations[0].category, "transfer_out");
   assert.ok(b.operations[0].title.kk.startsWith("Мадина"));
 });
+
+test("Call Status: a scammer on another number is not the bank, a forgotten session expires", async () => {
+  const line = "+7 727 000 00 00";
+  await ok("/api/callstatus/start", { persona: "aigul", staff_id: "BK-2041" });
+  assert.equal((await ok(`/api/callstatus/aigul?line=${encodeURIComponent(line)}`)).active, true);
+  const r = await ok(`/api/callstatus/aigul?line=${encodeURIComponent("+7 727 355 •• 14")}`);
+  assert.deepEqual(r, { active: false, staff: null, mismatch: true, line });
+  assert.equal((await ok("/api/callstatus/aigul")).active, true);
+  await ok("/api/demo/clock", { hours: 1 });
+  assert.equal((await ok(`/api/callstatus/aigul?line=${encodeURIComponent(line)}`)).active, false);
+});

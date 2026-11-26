@@ -32,6 +32,32 @@ def now_iso():
     return now().isoformat(timespec="seconds")
 
 
+def _digits(line):
+    return re.sub(r"[^0-9•]", "", str(line or ""))
+
+
+def session(pid):
+    """The open Call Status session of a client, or None; a session older than the TTL closes by itself."""
+    st = SESSIONS.get(pid)
+    ttl = SEED.get("call_status", {}).get("session_ttl_min", 30)
+    if st and now() - datetime.fromisoformat(st["since"]) > timedelta(minutes=ttl):
+        SESSIONS.pop(pid, None)
+        audit(st["name"], "staff", "call_ended", pid, "expired")
+        return None
+    return st
+
+
+def call_status(pid, line=None):
+    """'Is this really the bank?'. With `line` (the incoming number) a session counts only if the bank is calling
+    from that line: a scammer calling while a real session happens to be open is still not the bank."""
+    st = session(pid)
+    if not st:
+        return {"active": False, "staff": None}
+    if line is not None and _digits(line) != _digits(st.get("line")):
+        return {"active": False, "staff": None, "mismatch": True, "line": st.get("line")}
+    return {"active": True, "staff": st}
+
+
 def mask_phone(p):
     digits = re.sub(r"\D", "", p or "")
     return f"+7 ••• ••• {digits[-2:]}" if len(digits) >= 2 else "•••"

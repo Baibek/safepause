@@ -157,5 +157,10 @@
   "daniyar": {
    "typing_ms": 170
   }
+ },
+ "call_status": {
+  "_doc": "Call Status: the bank calls only from its official line, and a staff session closes by itself after this many minutes. The phone sends the incoming number; another number is not the bank even while a session is open. The number is invented.",
+  "bank_line": "+7 727 000 00 00",
+  "session_ttl_min": 30
  }
 }

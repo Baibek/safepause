@@ -821,6 +821,7 @@ class UnlockIn(BaseModel):
 class SessionIn(BaseModel):
     persona: str
     staff_id: Optional[str] = None
+    line: Optional[str] = None      # the number the bank calls from; its official line by default
 
 
 class NameIn(BaseModel):
@@ -862,7 +863,7 @@ def protection(pid):
     p, c = persona_or_404(pid), saqshy.client(pid)
     return {"persona": pid, "balance": p["balance"], "locked": c["locked"], "available": saqshy.available(pid, p["balance"]),
             "passkey": bool(c["passkey"]), "passkey_device": bool(c.get("passkey_cred")), "trusted": c["trusted"] and c["trusted"] | {"phone": saqshy.mask_phone(c["trusted"]["phone"])},
-            "index": saqshy.security_index(c), "index_parts": saqshy.INDEX_POINTS, "call": saqshy.SESSIONS.get(pid)}
+            "index": saqshy.security_index(c), "index_parts": saqshy.INDEX_POINTS, "call": saqshy.session(pid)}
 
 
 @app.get("/api/protect/{pid}")
@@ -935,7 +936,8 @@ def call_start(body: SessionIn):
     st = saqshy.staff(body.staff_id or saqshy.SEED["staff"][0]["id"])
     if not st:
         raise HTTPException(404, "unknown staff id")
-    saqshy.SESSIONS[body.persona] = st | {"since": saqshy.now_iso()}
+    line = body.line or saqshy.SEED["call_status"]["bank_line"]
+    saqshy.SESSIONS[body.persona] = st | {"since": saqshy.now_iso(), "line": line}
     saqshy.audit(st["name"], "staff", "call_started", body.persona, st["id"])
     return saqshy.SESSIONS[body.persona]
 
@@ -949,11 +951,11 @@ def call_end(body: SessionIn):
 
 
 @app.get("/api/callstatus/{pid}")
-def call_status(pid: str):
-    """'Is this really the bank?': an open staff session means a real bank call, with the employee's name and ID."""
+def call_status(pid: str, line: Optional[str] = None):
+    """'Is this really the bank?': an open staff session on the line the client is being called from means a real
+    bank call, with the employee's name and ID. Without `line` (the client asks from the app) any open session counts."""
     persona_or_404(pid)
-    st = saqshy.SESSIONS.get(pid)
-    return {"active": bool(st), "staff": st}
+    return saqshy.call_status(pid, line)
 
 
 @app.post("/api/recipient/check")

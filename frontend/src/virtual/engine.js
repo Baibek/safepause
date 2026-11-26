@@ -479,7 +479,7 @@ const routes = {
     personaOr404(b.persona);
     const st = S.staff(b.staff_id || S.SEED.staff[0].id);
     if (!st) throw fail(404, "unknown staff id");
-    S.SESSIONS[b.persona] = { ...st, since: S.nowIso() };
+    S.SESSIONS[b.persona] = { ...st, since: S.nowIso(), line: b.line || S.SEED.call_status.bank_line };
     S.audit(st.name, "staff", "call_started", b.persona, st.id);
     return { ...S.SESSIONS[b.persona] };
   },
@@ -598,7 +598,7 @@ function protection(pid) {
   const p = personaOr404(pid), c = S.client(pid);
   return { persona: pid, balance: p.balance, locked: c.locked, available: S.available(pid, p.balance), passkey: Boolean(c.passkey), passkey_device: Boolean(c.passkey_cred),
     trusted: c.trusted && { ...c.trusted, phone: S.maskPhone(c.trusted.phone) }, index: S.securityIndex(c),
-    index_parts: S.INDEX_POINTS, call: S.SESSIONS[pid] || null };
+    index_parts: S.INDEX_POINTS, call: S.session(pid) };
 }
 
 function bankState(p) {
@@ -611,7 +611,11 @@ function bankState(p) {
 const PREFIX = {
   "/api/bank/": (pid) => (pid === "catalogue" ? B.catalogue() : bankState(personaOr404(pid))),
   "/api/protect/": (pid) => protection(pid),
-  "/api/callstatus/": (pid) => { personaOr404(pid); const st = S.SESSIONS[pid]; return { active: Boolean(st), staff: st ? { ...st } : null }; },
+  "/api/callstatus/": (q) => {
+    const [pid, qs] = q.split("?");
+    personaOr404(pid);
+    return S.callStatus(pid, qs ? new URLSearchParams(qs).get("line") : null);
+  },
   "/api/client/history/": (pid) => {
     const p = personaOr404(pid);
     return [...TX.values()].filter((t) => t.live && t.client === p.name).sort((a, b) => (a.time < b.time ? 1 : -1)).map((t) => ({ ...t }));
