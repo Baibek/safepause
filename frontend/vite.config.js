@@ -8,6 +8,6 @@ export default defineConfig(({ mode }) => ({
   server: { proxy: { "/api": "http://localhost:8000" }, fs: { allow: [".."] } },
   build: mode === "virtual"
     ? { outDir: "dist-virtual", chunkSizeWarningLimit: 2000,
-        rollupOptions: { output: { entryFileNames: "app.js", assetFileNames: "app[extname]", inlineDynamicImports: true } } }
+        rollupOptions: { output: { entryFileNames: "app.js", chunkFileNames: "[name].js", assetFileNames: "app[extname]" } } }
     : { chunkSizeWarningLimit: 2000 },
 }));

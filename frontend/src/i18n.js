@@ -6,13 +6,14 @@ export const STR = {
     presets: "Дайын сценарийлер",
     pNormal: "Қызына әдеттегі аударма", pScam: "«Банк қауіпсіздік қызметі» қоңырау шалды",
     pRemote: "Қашықтан басқару арқылы", pCoached: "Жас клиент, жаңа алушы",
+    pBig: "Қызына әдеттен тыс көп аударым", pOtherBank: "Басқа банкке аударым",
     client: "Клиент", years: "жас", guardianOn: "«Қамқоршы» қосулы", guardianOff: "«Қамқоршы» жоқ",
     sigCall: "Телефон қоңырауы жүріп жатыр", sigUnknown: "Қоңырау бейтаныс нөмірден",
-    sigRemote: "AnyDesk / RustDesk қосулы", sigTime: "Уақыт", timeNow: "Қазір", timeNight: "Түн, 02:00",
+    sigRemote: "AnyDesk / RustDesk қосулы", sigNewDevice: "Жаңа құрылғыдан кірді", behavior2: (m, b, sw, c) => `Теру ырғағы ${m || "—"} мс (әдетте ${b} мс), қосымшадан шығу: ${sw}, түзету: ${c}. Басқа қойындыға өтіп қайтсаңыз, «шығу» есептеледі.`, behavior: (p, sec) => `Мінез-құлық (өлшенді): деректеме ${p ? "қойылды" : "қойылмады"}, ең ұзақ кідіріс ${sec.toFixed(1)} с`, sigVpn: "VPN қосулы", sigLoan: "Жаңа ғана онлайн несие алды", sigTime: "Уақыт", timeNow: "Қазір", timeNight: "Түн, 02:00",
     sigPace: "Әрекет қарқыны", paceNormal: "Әдеттегідей", paceSlow: "Өте баяу (біреу айтып тұр)", paceFast: "Өте тез (экранды біреу басқарып тұр)",
     balance: "Шоттағы қаражат", transfer: "Аударма", to: "Кімге", amount: "Сома, ₸", send: "Аудару",
     checking: "Аударма тексеріліп жатыр…", yes: "Иә", no: "Жоқ", typeAnswer: "Жауабыңызды жазыңыз…",
-    assistant: "SafePause көмекшісі", paused: "Аударма уақытша тоқтатылды",
+    assistant: "Senim көмекшісі", paused: "Аударма уақытша тоқтатылды",
     rApproved: "Аударма жіберілді", rCancelled: "Аударма тоқтатылды", rDelayed: "Аударма кейінге қалдырылды",
     rDelayedSub: (m) => `${m} минуттан кейін жіберіледі. Оған дейін бас тартуға болады.`,
     rCancelledSub: "Ақшаңыз шотыңызда қалды.", again: "Басты бетке", cancelTransfer: "Аудармадан бас тарту",
@@ -27,7 +28,7 @@ export const STR = {
     kModel: "Модель сапасы (тест)", recallNote: "алаяқтықтың ұсталған үлесі", falseNote: "заңды аударманың кідіртілген үлесі",
     synthetic: "синтетикалық дерек",
     feed: "Аудармалар легі", time: "Уақыт", recipient: "Алушы", status: "Күйі", live: "демо",
-    st: { approved: "Өтті", in_dialog: "Диалогта", delayed: "Кейінге қалды", cancelled: "Тоқтатылды" },
+    st: { approved: "Өтті", in_dialog: "Диалогта", delayed: "Кейінге қалды", cancelled: "Тоқтатылды", verifying: "Банк қоңырауы", awaiting_trusted: "Сенімді адам", awaiting_analyst: "Аналитикке", afc_hold: "Орталықта ұсталды" },
     why: "Модель шешімінің түсіндірмесі", whyHint: "Әр белгінің тәуекелге қосқан үлесі (SHAP, лог-мүмкіндік)",
     transcript: "Клиентпен диалог", pick: "Түсіндірмесін көру үшін аударманы таңдаңыз.",
     graph: "Дроп-желілер графы", graphHint: "Ақша кіріп, бірнеше минутта шығып кететін шоттар тізбегі",
@@ -37,10 +38,29 @@ export const STR = {
     node: "Шот", score: "Дроп-балл", passthrough: "Транзит үлесі", ageDays: "Шот жасы, күн", fanIn: "Жіберушілер саны",
     nodePick: "Мәліметін көру үшін графтағы шотты басыңыз.",
     llmOn: "LLM қосулы", llmOff: "LLM қосылмаған — үлгі мәтіндер",
+    callHowTitle: "Қалай сынау",
+    callHow: ["Телефонда сценарийді таңдаңыз: алаяқ қоңырауы дауыстап оқылады.", "«Қабылдау» → «Senim: тыңдайын ба?» батырмасын басыңыз — келісімсіз тыңдамаймыз.", "Сценарий қызыл ескертуге жеткенше бақылаңыз; оң жақта қай сатылар естілгені көрінеді.", "«Микрофон: нақты сөйлеу» — Chrome-да өзіңіз сөйлеңіз немесе телефонды динамикке қойып, ноутбуктың жанына ұстаңыз.", "WhatsApp видео сценарийінде «Бетті қолмен тексеру» батырмасын басыңыз."],
+    callPrivacy: "Нақты қосымшада сөйлеу телефонның ішінде танылады, дыбыс еш жаққа жіберілмейді.",
+    callAlert: (m) => `${m < 1 ? "Жаңа ғана" : `${m} минут бұрын`} сізге алаяқтық белгілері бар қоңырау болды`,
+    callAlertSub: "Бір сағат бойы әрбір аударма қосымша тексеріледі. Ешкімнің айтуымен ақша аудармаңыз.",
+    callAlertOk: "Бұл мен, бәрі дұрыс",
+    callTag: "қоңыраудан кейін",
+    tabCall: "Қоңырау", callUnder: "Қоңырауда не естілді", callHint: "Алаяқтың сценарийі 4 сатыдан тұрады. Бір саты — қауіп емес; «сұрау» + тағы бір саты немесе үш саты — алаяқтық.",
+    stAuth: "Таныстыру", stThreat: "Қорқыту / асықтыру", stRequest: "Сұрау", stIso: "Оқшаулау",
+    critical: "жалғыз өзі жеткілікті", callEmpty: "Қоңырау жасаңыз — естілген белгілер осында шығады.",
+    callRule: "Claude деңгейді тек бір сатыға көтере алады: қызыл ескерту әрқашан кемінде бір ережеге сүйенеді.",
+    trTitle: "Аударымдар", trFrom: "Қайдан", trTo: "Кімге", trCardMask: "Карта •••• 4417", trBack: "Артқа",
+    trType: { phone: "Телефон нөмірі бойынша", card: "Карта нөміріне", iban: "Деректемелер бойынша (IBAN)" },
+    trTypeSub: { phone: "Банк клиенттеріне, бірден", card: "Кез келген қазақстандық банк картасына", iban: "Коммуналдық қызметтер мен ұйымдарға" },
+    trRecent: "Соңғы алушылар", trNewRecipient: "Жаңа алушы — бұрын оған аударым жасамағансыз",
+    trWordsHint: "Соманы енгізіңіз — ол осында сөзбен жазылады", trAmount: "Сома", trFee: "Комиссия", trMessage: "Хабарлама (міндетті емес)",
+    trMessageHint: "Мысалы: туған күніңмен", trSend: (a) => `${a} ₸ аудару`, trContinue: (a) => `Жалғастыру (${a} ₸)`,
     tabTransfer: "Аударма", tabMessage: "Хабарлама тексеру", msgTitle: "Күдікті хабарлама келді ме?",
     msgHint: "SMS, WhatsApp хабарламасын немесе сілтемені осында қойыңыз — алаяқтық белгілерін тексеріп, түсіндіріп береміз.",
     msgPlaceholder: "Хабарлама мәтінін қойыңыз…", msgCheck: "Тексеру", msgChecking: "Тексеріп жатырмыз…", msgSamples: "Мысалдар",
-    msgSample: ["Жалған «банк»", "«Мама, бұл мен»", "Қалыпты хабарлама"],
+    msgSample: ["Жалған «банк»", "«Мама, бұл мен»", "Қалыпты хабарлама", "OLX «төлемді алу»", "Шот нөмірі"],
+    msgShot: "Скриншот жүктеу", msgFound: "Ішінде не табылды", msgFake: "жалған", msgOfficial: "ресми", msgOnDrop: "дроппер тізімінде", msgShotText: "Скриншоттағы мәтін",
+    msgKind: { iban: "Шот", card: "Карта", phone: "Телефон", link: "Сілтеме" },
     verdict: { scam: "Алаяқтық", suspicious: "Күдікті", safe: "Қауіпсіз сияқты" }, msgBy: { llm: "AI талдауы", rules: "Ережелер бойынша" },
     virtualNote: "Виртуалды нұсқа: модель мен граф браузерде жұмыс істейді",
     guardianBadge: "Қамқоршыға хабарланды",
@@ -52,13 +72,14 @@ export const STR = {
     presets: "Готовые сценарии",
     pNormal: "Обычный перевод дочери", pScam: "Звонит «служба безопасности банка»",
     pRemote: "Через удалённый доступ", pCoached: "Молодой клиент, новый получатель",
+    pBig: "Необычно крупный перевод дочери", pOtherBank: "Перевод в другой банк",
     client: "Клиент", years: "лет", guardianOn: "«Опекун» включён", guardianOff: "«Опекуна» нет",
     sigCall: "Идёт телефонный звонок", sigUnknown: "Звонок с незнакомого номера",
-    sigRemote: "Включён AnyDesk / RustDesk", sigTime: "Время", timeNow: "Сейчас", timeNight: "Ночь, 02:00",
+    sigRemote: "Включён AnyDesk / RustDesk", sigNewDevice: "Вход с нового устройства", behavior2: (m, b, sw, c) => `Ритм набора ${m || "—"} мс (обычно ${b} мс), выходы из приложения: ${sw}, исправления: ${c}. Переключитесь на другую вкладку и вернитесь — это засчитается как выход.`, behavior: (p, sec) => `Поведение (измерено): реквизиты ${p ? "вставлены" : "не вставлялись"}, самая долгая пауза ${sec.toFixed(1)} с`, sigVpn: "Включён VPN", sigLoan: "Только что взял онлайн-кредит", sigTime: "Время", timeNow: "Сейчас", timeNight: "Ночь, 02:00",
     sigPace: "Темп действий", paceNormal: "Обычный", paceSlow: "Очень медленно (кто-то диктует)", paceFast: "Очень быстро (экраном управляют)",
     balance: "На счёте", transfer: "Перевод", to: "Кому", amount: "Сумма, ₸", send: "Перевести",
     checking: "Проверяем перевод…", yes: "Да", no: "Нет", typeAnswer: "Напишите ответ…",
-    assistant: "Помощник SafePause", paused: "Перевод приостановлен",
+    assistant: "Помощник Senim", paused: "Перевод приостановлен",
     rApproved: "Перевод отправлен", rCancelled: "Перевод остановлен", rDelayed: "Перевод отложен",
     rDelayedSub: (m) => `Будет отправлен через ${m} минут. До этого его можно отменить.`,
     rCancelledSub: "Деньги остались на вашем счёте.", again: "На главную", cancelTransfer: "Отменить перевод",
@@ -73,7 +94,7 @@ export const STR = {
     kModel: "Качество модели (тест)", recallNote: "доля пойманного мошенничества", falseNote: "доля задержанных честных переводов",
     synthetic: "синтетические данные",
     feed: "Поток переводов", time: "Время", recipient: "Получатель", status: "Статус", live: "демо",
-    st: { approved: "Прошёл", in_dialog: "В диалоге", delayed: "Отложен", cancelled: "Остановлен" },
+    st: { approved: "Прошёл", in_dialog: "В диалоге", delayed: "Отложен", cancelled: "Остановлен", verifying: "Звонок банка", awaiting_trusted: "Доверенное лицо", awaiting_analyst: "Аналитику", afc_hold: "Удержан, Антифрод-центр" },
     why: "Объяснение решения модели", whyHint: "Вклад каждого признака в риск (SHAP, лог-шансы)",
     transcript: "Диалог с клиентом", pick: "Выберите перевод, чтобы увидеть объяснение.",
     graph: "Граф дроп-сетей", graphHint: "Цепочки счетов, где деньги приходят и уходят за считаные минуты",
@@ -83,10 +104,29 @@ export const STR = {
     node: "Счёт", score: "Дроп-балл", passthrough: "Доля транзита", ageDays: "Возраст счёта, дн.", fanIn: "Число отправителей",
     nodePick: "Нажмите на счёт в графе, чтобы увидеть детали.",
     llmOn: "LLM подключена", llmOff: "LLM не подключена — шаблонные тексты",
+    callHowTitle: "Как проверить",
+    callHow: ["Выберите сценарий на телефоне: звонок мошенника читается вслух.", "«Принять» → нажмите «Senim: слушать?» — без согласия мы не слушаем.", "Смотрите, как сценарий доходит до красного предупреждения; справа видно, какие стадии прозвучали.", "«Микрофон: живая речь» — говорите сами в Chrome или поставьте телефон на громкую связь рядом с ноутбуком.", "В сценарии с видео WhatsApp нажмите «Проверить лицо вручную»."],
+    callPrivacy: "В настоящем приложении речь распознаётся на телефоне, звук никуда не отправляется.",
+    callAlert: (m) => `${m < 1 ? "Только что" : `${m} мин назад`} вам звонили с признаками мошенничества`,
+    callAlertSub: "В течение часа каждый перевод проверяется дополнительно. Не переводите деньги по чьей-то просьбе.",
+    callAlertOk: "Это я, всё в порядке",
+    callTag: "после звонка",
+    tabCall: "Звонок", callUnder: "Что прозвучало в звонке", callHint: "Сценарий мошенника состоит из 4 стадий. Одна стадия — не опасно; «просьба» + ещё одна или три стадии — мошенничество.",
+    stAuth: "Представился", stThreat: "Угроза / спешка", stRequest: "Просьба", stIso: "Изоляция",
+    critical: "достаточно одного", callEmpty: "Сделайте звонок — услышанные признаки появятся здесь.",
+    callRule: "Claude может поднять уровень только на одну ступень: красное предупреждение всегда опирается хотя бы на одно правило.",
+    trTitle: "Переводы", trFrom: "Откуда", trTo: "Кому", trCardMask: "Карта •••• 4417", trBack: "Назад",
+    trType: { phone: "По номеру телефона", card: "На карту", iban: "По реквизитам (IBAN)" },
+    trTypeSub: { phone: "Клиентам банка, мгновенно", card: "На карту любого банка Казахстана", iban: "Коммунальные услуги и организации" },
+    trRecent: "Недавние получатели", trNewRecipient: "Новый получатель — вы ему ещё не переводили",
+    trWordsHint: "Введите сумму — здесь она будет написана словами", trAmount: "Сумма", trFee: "Комиссия", trMessage: "Сообщение (необязательно)",
+    trMessageHint: "Например: с днём рождения", trSend: (a) => `Перевести ${a} ₸`, trContinue: (a) => `Продолжить (${a} ₸)`,
     tabTransfer: "Перевод", tabMessage: "Проверить сообщение", msgTitle: "Пришло подозрительное сообщение?",
     msgHint: "Вставьте сюда SMS, сообщение из WhatsApp или ссылку — проверим на признаки мошенничества и объясним.",
     msgPlaceholder: "Вставьте текст сообщения…", msgCheck: "Проверить", msgChecking: "Проверяем…", msgSamples: "Примеры",
-    msgSample: ["Фальшивый «банк»", "«Мама, это я»", "Обычное сообщение"],
+    msgSample: ["Фальшивый «банк»", "«Мама, это я»", "Обычное сообщение", "OLX «получить оплату»", "Номер счёта"],
+    msgShot: "Загрузить скриншот", msgFound: "Что нашли внутри", msgFake: "поддельная", msgOfficial: "официальная", msgOnDrop: "в списке дропперов", msgShotText: "Текст со скриншота",
+    msgKind: { iban: "Счёт", card: "Карта", phone: "Телефон", link: "Ссылка" },
     verdict: { scam: "Мошенничество", suspicious: "Подозрительно", safe: "Похоже, безопасно" }, msgBy: { llm: "Анализ AI", rules: "По правилам" },
     virtualNote: "Виртуальная версия: модель и граф работают в браузере",
     guardianBadge: "Опекун уведомлён",
@@ -96,14 +136,48 @@ export const STR = {
 export const fmt = (n) => Math.round(n).toLocaleString("ru-RU").replace(/,/g, " ");
 
 import { virtualApi } from "./virtual/engine.js";
+import ACCESS from "../../shared/access_policy.json";
 
 export const VIRTUAL = import.meta.env.MODE === "virtual";
 
-export async function api(path, body) {
+// ---- sessions on the Python server (shared/access_policy.json): each request acts as one role; the demo logs in
+// to each role it needs (a client or trusted contact for the persona in the scenario panel).
+const RULES = ACCESS.rules.map((r) => ({ ...r, rx: new RegExp(r.path) }));
+let sessionPersona = "aigul";
+const sessions = {};
+export const setSessionPersona = (p) => { sessionPersona = p; };
+const roleFor = (method, path) => {
+  const r = RULES.find((x) => x.method === method && x.rx.test(path));
+  return r && !r.roles.includes("public") ? r.roles[0] : null;
+};
+const csrf = () => decodeURIComponent(document.cookie.match(/(?:^|; )senim_csrf=([^;]+)/)?.[1] || "");
+async function ensureLogin(role, force = false) {
+  const persona = role === "client" || role === "trusted" ? sessionPersona : null;
+  if (!force && role in sessions && sessions[role] === persona) return;
+  let password;
+  for (let i = 0; i < 3; i++) {
+    const r = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role, persona, password }) });
+    if (r.ok) { sessions[role] = persona; return; }
+    if (r.status !== 401) break;
+    password = window.prompt(`${role}: password (SENIM_STAFF_PASSWORD)`);
+    if (password == null) break;
+  }
+  throw new Error(`login as ${role} failed`);
+}
+
+/** Calls the API. role: which session to act as (default: the first role the access policy allows for the path). */
+export async function api(path, body, role) {
   if (VIRTUAL) return virtualApi(path, body);
-  const r = await fetch(path, body === undefined ? undefined : {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
-  });
-  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+  const method = body === undefined ? "GET" : "POST";
+  role ||= roleFor(method, path);
+  const send = async () => {
+    if (role) await ensureLogin(role);
+    return fetch(path, { method, headers: { "Content-Type": "application/json", ...(role ? { "X-Senim-Role": role, "X-CSRF-Token": csrf() } : {}) },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  };
+  let r = await send();
+  if (r.status === 401 && role) { delete sessions[role]; r = await send(); }
+  if (!r.ok) throw Object.assign(new Error((await r.json().catch(() => ({}))).detail || r.statusText), { status: r.status });
   return r.json();
 }

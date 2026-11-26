@@ -1,0 +1,14 @@
+<section id="integration" class="s-light slide">
+<h2>BCC қосымшасына бір санмен қосылады</h2>
+<div style="display:flex; align-items:stretch; gap:0">
+<div class="card" style="flex:1"><p class="where">Клиенттің телефоны</p><h3>Call Guard</h3><p class="what">Алаяқ қоңырауын анықтап, уақытын жергілікті сақтайды</p></div>
+<x-connector from="tl" head="end" style="width:96px; color:#0F4C4A; border-width:4px; align-self:center"></x-connector>
+<div class="card" style="flex:1"><p class="where">BCC мобильді қосымшасы</p><h3>SafePauseSdk</h3><p class="what">Аударым алдында бір өрісті сұрауға қосады</p></div>
+<x-connector from="tl" head="end" style="width:96px; color:#0F4C4A; border-width:4px; align-self:center"></x-connector>
+<div class="card" style="flex:1"><p class="where">Банк сервері</p><h3>Аударымды тексеру</h3><p class="what">60 минут ішінде болса — пауза және AI-диалог</p></div>
+</div>
+<p class="code">signals = SafePauseSdk.transferSignals(context)   // {"scam_call_minutes": 4.0}</p>
+<p class="body" style="width:1500px">Банкке тек бір сан жіберіледі: дыбыс, әңгіме мәтіні және нөмір телефоннан шықпайды. API келісімшарты мен пилот жоспары — docs/BCC_INTEGRATION.md.</p>
+<p class="foot"><span>Senim</span><span>BCC-ке енгізу</span></p>
+<aside>Интеграция жеңіл: Call Guard модулі қосымшаның ішіне енеді, ал аударым API-ына бір ғана өріс қосылады — scam_call_minutes. Банк сервері бұл белгіні скорингке қосады. Демо қоңырау банкке ешқашан жіберілмейді. Барлығы тесттермен тексерілген: Android-та 83, серверде 4 тест.</aside>
+</section>

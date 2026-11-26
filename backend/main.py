@@ -1,7 +1,8 @@
-"""SafePause API: real-time transfer scoring, AI dialog, guardian mode, analyst dashboard."""
+"""Senim API: real-time transfer scoring, AI dialog, guardian mode, analyst dashboard."""
 import json
 import math
 import random
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -9,19 +10,26 @@ from typing import Optional
 
 import pandas as pd
 import xgboost as xgb
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import bank
 import graph as graph_mod
 import llm
+import policy
+import saqshy
+import security
+import webauthn
 from features import FEATURES, build_features
 
 HERE = Path(__file__).parent
 ALMATY = timezone(timedelta(hours=5))
 PAUSE_AT, HIGH_AT = 0.25, 0.60
 GUARDIAN_MIN_AMOUNT = 100_000
+SCAM_CALL_WINDOW_MIN = 60   # a transfer within an hour of a detected scam call is always paused
 
 if not (HERE / "model.json").exists():
     import train
@@ -109,17 +117,59 @@ T = {
 MSG = json.loads((HERE.parent / "shared" / "message_rules.json").read_text())
 
 
+URL_RE = re.compile(r"(?:https?://|www\.)([a-z0-9.-]+)|\b((?:[a-z0-9-]+\.)+(?:kz|top|xyz|click|site|online|info|com|ru|net|org|me|io|shop))\b", re.I)
+IBAN_RE = re.compile(r"\bKZ\d{2}(?:[ ]?[A-Z0-9]){14,18}\b", re.I)
+PHONE_RE = re.compile(r"(?:\+7|\b8)[\s(-]*7\d{2}[\s)-]*\d{3}[\s-]*\d{2}[\s-]*\d{2}\b")
+CARD_RE = re.compile(r"\b(?:\d[ -]?){15}\d\b")
+
+
+def found_in(text):
+    """Links (and whether they fake a known brand) and requisites (masked; whether on the dropper list) in a text."""
+    links, seen = [], set()
+    for m in URL_RE.finditer(text):
+        d = (m.group(1) or m.group(2) or "").lower().strip(".").removeprefix("www.")
+        if not d or d in seen:
+            continue
+        seen.add(d)
+        brand = next((b for b in MSG["brands"] if b["token"] in d), None)
+        fake = bool(brand) and not any(d == o or d.endswith("." + o) for o in brand["official"])
+        links.append({"domain": d, "brand": brand["token"] if brand else None, "fake": fake})
+    reqs, rest = [], text
+    known = set(saqshy.DROP_LIST) | set(DROP)
+    for m in IBAN_RE.finditer(text):
+        iban = re.sub(r"\s", "", m.group()).upper()
+        masked = f"{iban[:4]} •••• {iban[-4:]}"
+        reqs.append({"kind": "iban", "value": masked, "drop": masked in known})
+        rest = rest.replace(m.group(), " ")
+    for m in PHONE_RE.finditer(rest):
+        digits = re.sub(r"\D", "", m.group())
+        reqs.append({"kind": "phone", "value": f"+7 7•• ••• •• {digits[-2:]}", "drop": False})
+        rest = rest.replace(m.group(), " ")
+    for m in CARD_RE.finditer(rest):
+        digits = re.sub(r"\D", "", m.group())
+        reqs.append({"kind": "card", "value": f"{digits[:4]} •••• •••• {digits[-4:]}", "drop": False})
+    return {"links": links, "requisites": reqs}
+
+
 def message_rules(text, lang):
-    """Keyword heuristics: the fallback when no LLM is available and a floor under the LLM verdict."""
-    import re
-    hits = [r for r in MSG["rules"] if re.search(r["re"], text, re.I)]
+    """Keyword heuristics plus fake brand domains and dropper accounts: the fallback when no LLM is available and a
+    floor under the LLM verdict."""
+    hits = [(r["w"], r[lang]) for r in MSG["rules"] if re.search(r["re"], text, re.I)]
+    found = found_in(text)
+    F = MSG["found_rules"]
+    for link in found["links"]:
+        if link["fake"]:
+            hits.insert(0, (F["fake_domain"]["w"], F["fake_domain"][lang].replace("{d}", link["domain"])))
+    for req in found["requisites"]:
+        if req["drop"]:
+            hits.insert(0, (F["drop_account"]["w"], F["drop_account"][lang].replace("{a}", req["value"])))
     score = 1.0
-    for r in hits:
-        score *= 1 - r["w"]
+    for w, _ in hits:
+        score *= 1 - w
     score = 1 - score
     verdict = "scam" if score >= 0.6 else "suspicious" if score >= 0.3 else "safe"
-    return {"verdict": verdict, "score": round(score, 2), "reasons": [r[lang] for r in hits[:3]],
-            "advice": MSG["advice"][verdict][lang], "source": "rules"}
+    return {"verdict": verdict, "score": round(score, 2), "reasons": [t for _, t in hits[:4]],
+            "advice": MSG["advice"][verdict][lang], "source": "rules", "found": found}
 
 
 TX: dict[str, dict] = {}
@@ -145,7 +195,9 @@ def factors_for(feats, contrib, limit=6):
 
 
 def level_of(risk):
-    return "high" if risk >= HIGH_AT else "medium" if risk >= PAUSE_AT else "low"
+    """low / medium / high on the policy's 0-100 scale: below warn, below cool, cool and above."""
+    t = policy.POLICY["thresholds"]
+    return "high" if risk * 100 >= t["cool"] else "medium" if risk * 100 >= t["warn"] else "low"
 
 
 def now_iso(offset_min=0):
@@ -171,13 +223,111 @@ def seed():
             "recipient": rnd.choice(drops) if r["recipient_drop_score"] > 0.5 else f"KZ{rnd.randint(10, 99)} •••• {rnd.randint(1000, 9999)}",
             "amount": round(r["amount"], -2), "risk": round(risk, 3), "level": lvl, "status": status,
             "paused": lvl != "low", "factors": factors_for(r, contrib), "transcript": [], "guardian": None, "live": False,
+            "scam_call": False,
         }
 
 
 seed()
 
 # ---------------------------------------------------------------- API
-app = FastAPI(title="SafePause")
+app = FastAPI(title="Senim")
+security.install_log_masking()
+
+
+def owner_of(method, path, data):
+    """The persona a request is about: from the path (GET), the body, the transfer or the notification it names."""
+    m = re.match(r"^/api/(?:protect|callstatus|client/history|bank)/([^/]+)$", path) if method == "GET" else None
+    if m:
+        return m.group(1)
+    m = re.match(r"^/api/transfer/([^/]+)$", path) if method == "GET" else None
+    tx_id = m.group(1) if m and m.group(1) != "check" else data.get("tx_id")
+    if data.get("persona"):
+        return data["persona"]
+    if tx_id:
+        return (TX.get(tx_id) or {}).get("persona", "?")
+    if data.get("id"):
+        n = next((x for x in NOTIFICATIONS if x["id"] == data["id"]), None)
+        return next((pid for pid, p in PERSONAS.items() if n and p["name"] == n["client"]), "?")
+    return None
+
+
+@app.middleware("http")
+async def guard(request: Request, call_next):
+    path = request.url.path
+    if path.startswith("/api/"):
+        ip = request.client.host if request.client else "?"
+        wait = security.LIMITER.hit(ip, path) if security.enabled() else None
+        if wait:
+            return JSONResponse({"detail": "too many requests"}, 429, headers={"Retry-After": str(wait)})
+        if security.enabled():
+            rule = security.rule_for(request.method, path)
+            if not rule:
+                return JSONResponse({"detail": "not allowed"}, 403)
+            if "public" not in rule["roles"]:
+                role = request.headers.get("x-senim-role") or rule["roles"][0]
+                if role not in rule["roles"]:
+                    return JSONResponse({"detail": f"role {role} may not call this"}, 403)
+                sess = security.verify(request.cookies.get(f"senim_{role}"))
+                if not sess:
+                    return JSONResponse({"detail": "log in first"}, 401)
+                if request.method != "GET":
+                    token = request.headers.get("x-csrf-token", "")
+                    if not token or not secrets_compare(token, request.cookies.get("senim_csrf", "")):
+                        return JSONResponse({"detail": "CSRF token missing or wrong"}, 403)
+                if rule.get("own") and role in ("client", "trusted"):
+                    body = await request.body()
+                    try:
+                        data = json.loads(body) if body else {}
+                    except ValueError:
+                        data = {}
+                    pid = owner_of(request.method, path, data if isinstance(data, dict) else {})
+                    if pid is not None and pid != sess.get("p"):
+                        return JSONResponse({"detail": "this belongs to another client"}, 403)
+                request.state.session = sess
+    resp = await call_next(request)
+    for k, v in security.SECURITY_HEADERS.items():
+        resp.headers.setdefault(k, v)
+    return resp
+
+
+def secrets_compare(a, b):
+    import hmac
+    return bool(b) and hmac.compare_digest(a, b)
+
+
+class LoginIn(BaseModel):
+    role: str
+    persona: Optional[str] = None
+    password: Optional[str] = None
+
+
+@app.post("/api/auth/login")
+def login(body: LoginIn, request: Request):
+    """Demo login: a client or trusted contact names the persona; staff roles need SENIM_STAFF_PASSWORD if it is set."""
+    if body.role not in security.ROLES:
+        raise HTTPException(400, "unknown role")
+    if body.role in ("client", "trusted") and body.persona not in PERSONAS:
+        raise HTTPException(400, "a client session needs a persona")
+    pw = security.staff_password()
+    if body.role in security.POLICY["staff_roles"] and pw and not secrets_compare(body.password or "", pw):
+        saqshy.audit(body.role, body.role, "login_failed", body.role, "wrong password")
+        raise HTTPException(401, "password required")
+    resp = JSONResponse({"role": body.role, "persona": body.persona})
+    secure = request.url.scheme == "https"
+    resp.set_cookie(f"senim_{body.role}", security.sign(body.role, body.persona), httponly=True, samesite="strict",
+                    secure=secure, max_age=security.SESSION_HOURS * 3600, path="/")
+    csrf = request.cookies.get("senim_csrf") or uuid.uuid4().hex + uuid.uuid4().hex
+    resp.set_cookie("senim_csrf", csrf, httponly=False, samesite="strict", secure=secure, path="/")
+    return resp
+
+
+@app.post("/api/auth/logout")
+def logout():
+    resp = JSONResponse({"ok": True})
+    for r in security.ROLES:
+        resp.delete_cookie(f"senim_{r}", path="/")
+    return resp
+
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
@@ -187,6 +337,18 @@ class Signals(BaseModel):
     remote_app: bool = False
     hour: Optional[int] = None
     session_seconds: float = 45
+    # minutes since Senim Call Guard on this phone flagged a call as fraud (None = no such call)
+    scam_call_minutes: Optional[float] = None
+    new_device: bool = False
+    vpn: bool = False
+    rooted: bool = False
+    loan_minutes_ago: Optional[float] = None   # an online loan was taken this many minutes ago
+    pasted: bool = False                       # recipient details were pasted from the clipboard
+    typing_pause_ms: Optional[float] = None    # the longest pause while the amount was typed
+    typing_median_ms: Optional[float] = None   # median time between keystrokes in this transfer
+    app_switches: int = 0                      # times the app went to the background during the transfer
+    phone_flat: bool = False                   # the phone lay flat (device orientation), e.g. on speaker
+    corrections: int = 0                       # backspaces in the recipient and amount fields
 
 
 class CheckIn(BaseModel):
@@ -195,6 +357,26 @@ class CheckIn(BaseModel):
     amount: float
     signals: Signals = Signals()
     lang: str = "kk"
+    other_bank: bool = False      # the recipient's account is in another bank
+    recipient_name: Optional[str] = None   # the name the client typed, for the name check
+
+
+_ST = json.loads((HERE.parent / "shared" / "saqshy_texts.json").read_text(encoding="utf-8"))
+TXT, COOLING_REASON = _ST["messages"], _ST["cooling_reason"]
+
+
+class VerifyIn(BaseModel):
+    tx_id: str
+    answer: str                   # self | not_me | no_answer
+    lang: str = "kk"
+
+
+# Bank verification call: before an unusual transfer leaves, the bank calls the client, reads a short notice
+# about scams and asks to confirm. 1 = "I am doing it myself" -> the transfer goes; 2 = "not me" -> blocked.
+_VC = json.loads((Path(__file__).resolve().parent.parent / "shared" / "verify_call.json").read_text(encoding="utf-8"))
+VERIFY_RATIO = _VC["ratio"]                    # this many times the client's usual transfer
+VERIFY_OTHER_BANK_MIN = _VC["other_bank_min"]  # transfers to another bank from this amount
+VERIFY_REASONS, VERIFY_SCRIPT, VERIFY_DONE = _VC["reasons"], _VC["script"], _VC["done"]
 
 
 class AnswerIn(BaseModel):
@@ -204,8 +386,9 @@ class AnswerIn(BaseModel):
 
 
 class MessageIn(BaseModel):
-    text: str
+    text: str = ""
     lang: str = "kk"
+    image: Optional[str] = None   # a screenshot as a data URL (png / jpeg / webp / gif, up to 5 MB)
 
 
 class GuardianIn(BaseModel):
@@ -218,23 +401,42 @@ def next_question(tx, lang):
     return {"key": tx["queue"][0], "text": q[lang]}
 
 
-def notify_guardian(tx, persona):
-    g = persona["guardian"]
-    if not g or tx["amount"] < GUARDIAN_MIN_AMOUNT or tx["guardian"]:
+def notify_guardian(tx, persona, approval=False):
+    """Tells the client's trusted contact. approval=True: the transfer waits for their decision (score 80+)."""
+    g = saqshy.trusted_active(persona["id"])
+    if not g or tx["guardian"] or (tx["amount"] < GUARDIAN_MIN_AMOUNT and not approval):
         return None
-    n = {"id": uuid.uuid4().hex[:8], "tx_id": tx["id"], "time": now_iso(), "guardian": g["name"],
+    open_ = approval or tx["status"] == "delayed"
+    n = {"id": uuid.uuid4().hex[:8], "tx_id": tx["id"], "time": saqshy.now_iso(), "guardian": g["name"],
          "client": persona["name"], "amount": tx["amount"], "recipient": tx["recipient"],
-         "status": tx["status"], "risk": tx["risk"], "state": "open" if tx["status"] == "delayed" else "info"}
+         "status": tx["status"], "risk": tx["risk"], "state": "open" if open_ else "info", "approval": approval,
+         "channel": "sms" if g.get("other_bank") else "app"}
+    if approval:
+        n["deadline"] = (saqshy.now() + timedelta(hours=policy.POLICY["trusted_timeout_hours"])).isoformat(timespec="seconds")
     NOTIFICATIONS.insert(0, n)
-    tx["guardian"] = {"name": g["name"], "state": n["state"]}
+    tx["guardian"] = {"name": g["name"], "state": n["state"], "relation": g["relation"]}
+    saqshy.audit("Senim", "system", "trusted_notified" if not approval else "trusted_asked", tx["id"],
+                 f"{g['name']} ({n['channel']})")
     return g
+
+
+def expire_approvals():
+    """A trusted contact who does not answer within the timeout means no: the transfer is not sent."""
+    t = saqshy.now()
+    for n in NOTIFICATIONS:
+        if n.get("approval") and n["state"] == "open" and datetime.fromisoformat(n["deadline"]) <= t:
+            tx = TX[n["tx_id"]]
+            n["state"] = tx["guardian"]["state"] = "expired"
+            tx["status"] = n["status"] = "cancelled"
+            tx["transcript"].append({"from": "bot", "text": TXT["expired"][tx.get("lang", "kk")]})
+            saqshy.audit("Senim", "system", "rejected", tx["id"], "trusted contact did not answer in time")
 
 
 def finish(tx, decision, lang):
     persona = PERSONAS[tx["persona"]]
     tx["status"] = decision
     if decision == "delayed":
-        tx["delay_minutes"] = 60 if tx["level"] == "high" else 30
+        tx["delay_minutes"] = (tx.get("cooling") or {}).get("minutes") or (60 if tx["level"] == "high" else 30)
     g = notify_guardian(tx, persona) if decision != "approved" else None
     msg = llm.final_message(lang, decision, tx["amount"], tx["recipient"], tx["risky"], g["name"] if g else None)
     if not msg:
@@ -249,7 +451,7 @@ def finish(tx, decision, lang):
 @app.get("/api/bootstrap")
 def bootstrap():
     return {"personas": list(PERSONAS.values()), "recipients": RECIPIENTS, "llm": llm.enabled(),
-            "samples": MSG["samples"],
+            "samples": MSG["samples"], "staff": saqshy.SEED["staff"], "behavior": saqshy.SEED.get("behavior", {}),
             "thresholds": {"pause": PAUSE_AT, "high": HIGH_AT}}
 
 
@@ -262,43 +464,93 @@ def check(body: CheckIn):
     if body.amount <= 0 or body.amount > persona["balance"]:
         raise HTTPException(400, "amount must be positive and within the balance")
     lang = body.lang if body.lang in ("kk", "ru") else "kk"
+    free = saqshy.available(persona["id"], persona["balance"])
+    if body.amount > free:                                    # money in the safe cannot leave digitally
+        saqshy.audit(persona["name"], "client", "blocked_locked", rec["account"], f"{body.amount:.0f} > {free:.0f}")
+        raise HTTPException(409, TXT["locked"][lang].format(a=f"{free:,.0f}".replace(",", " ")))
     s = body.signals
     hour = s.hour if s.hour is not None else datetime.now(ALMATY).hour
     drop = DROP.get(rec["account"])
     feats = build_features(body.amount, persona["avg_amount"], persona["balance"], not rec["known"], hour,
                            s.on_call, s.unknown_caller, s.remote_app, s.session_seconds, persona["age"],
                            rec["age_days"], drop["score"] if drop else 0.05, 1)
-    risk, contrib = score(feats)
-    lvl = level_of(risk)
+    model_risk, contrib = score(feats)
     tid = f"TX-{uuid.uuid4().hex[:6].upper()}"
     factors = factors_for(feats, contrib)
-    tx = {"id": tid, "time": now_iso(), "client": persona["name"], "age": persona["age"], "persona": persona["id"],
-          "recipient": rec["account"], "amount": body.amount, "risk": round(risk, 3), "level": lvl,
-          "status": "approved", "paused": lvl != "low", "factors": factors, "transcript": [], "guardian": None,
-          "live": True, "risky": [], "drop_network": drop["network"] if drop else None}
+    scam_call = s.scam_call_minutes is not None and 0 <= s.scam_call_minutes <= SCAM_CALL_WINDOW_MIN
+    if scam_call:
+        # the strongest signal there is: the client is probably being coached by that caller right now
+        m = round(s.scam_call_minutes)
+        factors.insert(0, {"key": "scam_call", "contribution": 5.0, "value": m,
+                           "kk": ("Жаңа ғана" if m < 1 else f"{m} минут бұрын") + " телефоныңызда алаяқтық белгілері бар қоңырау анықталды",
+                           "ru": ("Только что" if m < 1 else f"{m} мин назад") + " на вашем телефоне распознан звонок с признаками мошенничества",
+                           "en": f"Senim flagged a scam phone call on this device {m} minutes ago"})
+    names = saqshy.name_check(rec["id"], body.recipient_name) if body.recipient_name and not rec["known"] else None
+    senders = senders_last_hour(rec)
+    rule = policy.POLICY["auto_drop"]
+    node = DROP.get(rec["account"]) or next((n for n in GRAPH["nodes"] if n["id"] == rec["account"]), None)
+    if senders >= rule["senders"] and not rec["known"] and (node is None or node["hold_min"] is None or node["hold_min"] <= rule["max_hold_min"]):
+        saqshy.flag(rec["account"], senders, node["hold_min"] if node else None, "live")
+    pol = policy.evaluate({
+        "amount": body.amount, "amount_ratio": body.amount / max(persona["avg_amount"], 1.0), "hour": hour,
+        "model_risk": model_risk, "new_recipient": not rec["known"], "other_bank": body.other_bank,
+        "new_device": s.new_device, "on_call": s.on_call, "unknown_caller": s.unknown_caller,
+        "scam_call_minutes": s.scam_call_minutes, "remote_access": s.remote_app, "rooted": s.rooted, "vpn": s.vpn,
+        "drop_list": rec["account"] in saqshy.DROP_LIST,
+        "senders_last_hour": senders,
+        "loan_minutes_ago": s.loan_minutes_ago, "name_match": names["match"] if names else None,
+        "pasted": s.pasted, "typing_pause_ms": s.typing_pause_ms, "typing_median_ms": s.typing_median_ms,
+        "typing_baseline_ms": saqshy.SEED.get("behavior", {}).get(persona["id"], {}).get("typing_ms"),
+        "app_switches": s.app_switches, "phone_flat": s.phone_flat, "corrections": s.corrections})
+    risk = pol["score"] / 100
+    lvl = level_of(risk)
+    tier = pol["tier"]
+    tx = {"id": tid, "time": saqshy.now_iso(), "client": persona["name"], "age": persona["age"], "persona": persona["id"],
+          "recipient": rec["account"], "amount": body.amount, "risk": round(risk, 3), "model_risk": round(model_risk, 3),
+          "level": lvl, "tier": tier, "signals": pol["signals"], "status": "approved", "paused": tier != "pass" or bool(pol["cooling"]),
+          "factors": factors, "transcript": [], "guardian": None, "live": True, "risky": [], "lang": lang,
+          "drop_network": drop["network"] if drop else None, "scam_call": scam_call, "cooling": pol["cooling"],
+          "behavior": {"typing_median_ms": s.typing_median_ms, "typing_baseline_ms": saqshy.SEED.get("behavior", {}).get(persona["id"], {}).get("typing_ms"),
+                       "typing_pause_ms": s.typing_pause_ms, "app_switches": s.app_switches, "phone_flat": s.phone_flat,
+                       "corrections": s.corrections, "pasted": s.pasted}}
     TX[tid] = tx
-    resp = {"tx_id": tid, "risk": tx["risk"], "level": lvl, "factors": factors, "action": "approve"}
-    if lvl == "low":
+    saqshy.audit("Senim", "system", tier, tid, ", ".join(f"{x['key']}+{x['points']}" for x in pol["signals"]) or "no signals")
+    resp = {"tx_id": tid, "risk": tx["risk"], "score": pol["score"], "tier": tier, "signals": pol["signals"],
+            "level": lvl, "factors": factors, "action": "approve", "name_check": names}
+
+    if tier == "pass":
+        if pol["cooling"]:                                    # e.g. the first large transfer to a new recipient
+            m = pol["cooling"]["minutes"]
+            tx.update(status="delayed", delay_minutes=m)
+            msg = TXT["cooling"][lang].format(m=m)
+            tx["transcript"].append({"from": "bot", "text": msg})
+            resp.update(action="cooling", message=msg, cooling=pol["cooling"] | {"text": COOLING_REASON[pol["cooling"]["reason"]]})
+        return resp
+
+    # warn without a live call or remote control: the bank's verification call ("press 1 if it is you")
+    if tier == "warn" and not (s.on_call or s.remote_app or scam_call):
+        tx.update(status="verifying", verify=[x["key"] for x in pol["signals"]])
+        tx["transcript"] += [{"from": "bot", "text": line} for line in VERIFY_SCRIPT[lang]]
+        resp.update(action="verify", verify={
+            "reasons": [{"kk": x["kk"], "ru": x["ru"]} for x in pol["signals"]], "script": VERIFY_SCRIPT[lang]})
         return resp
 
     queue = []
-    if s.on_call or lvl == "high":
+    if s.on_call or tier in ("cool", "escalate") or scam_call:
         queue.append("call")
     if s.remote_app:
         queue.append("remote")
-    if lvl == "high":
+    if tier in ("cool", "escalate"):
         queue.append("safe")
     if not rec["known"]:
         queue.append("known")
     tx["queue"] = queue or ["call"]
     tx["status"] = "in_dialog"
     # for the client message, lead with the signals a person can verify themselves
-    client_first = ["on_call", "unknown_caller", "remote_app", "recipient_drop_score", "new_recipient", "amount_ratio"]
-    positive = sorted((f for f in factors if f["contribution"] > 0),
-                      key=lambda f: client_first.index(f["key"]) if f["key"] in client_first else 99)[:3]
-    msg = llm.opening_message(lang, body.amount, rec["account"], [f["en"] for f in positive])
+    lead = [x for x in pol["signals"] if x["key"] != "model"][:2] or pol["signals"][:1]
+    msg = llm.opening_message(lang, body.amount, rec["account"], [x[lang] for x in lead])
     if not msg:
-        reasons = "; ".join(f[lang][0].lower() + f[lang][1:] for f in positive[:2])
+        reasons = "; ".join(x[lang][0].lower() + x[lang][1:] for x in lead)
         msg = T["opening"][lang].format(r=reasons)
     tx["transcript"].append({"from": "bot", "text": msg})
     q = next_question(tx, lang)
@@ -313,6 +565,11 @@ def answer(body: AnswerIn):
     if not tx or tx["status"] != "in_dialog":
         raise HTTPException(404, "no active dialog for this transfer")
     lang = body.lang if body.lang in ("kk", "ru") else "kk"
+    # decisions taken on the app's fraud-warning screen instead of answering the questions
+    if body.answer in ("cancel", "delay"):
+        tx["transcript"].append({"from": "client", "text": {"cancel": {"kk": "Аударымнан бас тарттым", "ru": "Отменил перевод"},
+                                                           "delay": {"kk": "Кейінге қалдырдым", "ru": "Отложил перевод"}}[body.answer][lang]})
+        return finish(tx, "cancelled" if body.answer == "cancel" else "delayed", lang)
     key = tx["queue"][0]
     q = QUESTIONS[key]
     raw = body.answer.strip()
@@ -333,21 +590,84 @@ def answer(body: AnswerIn):
         nq = next_question(tx, lang)
         tx["transcript"].append({"from": "bot", "text": nq["text"]})
         return {"question": nq}
-    # all questions answered. Victims are often coached to answer "correctly",
-    # so a high model risk still earns a cooling-off period instead of an instant transfer.
+    # all questions answered. Victims are often coached to answer "correctly", so the policy still decides:
+    # 80+ waits for the trusted contact (or an analyst), 60-80 gets a cooling-off period.
+    if tx.get("tier") == "escalate":
+        return escalate(tx, lang)
     if tx["risky"] or tx["level"] == "high":
         return finish(tx, "delayed", lang)
     return finish(tx, "approved", lang)
+
+
+def escalate(tx, lang):
+    persona = PERSONAS[tx["persona"]]
+    g = saqshy.trusted_active(persona["id"])
+    tx["status"] = "awaiting_trusted" if g else "awaiting_analyst"
+    if g:
+        notify_guardian(tx, persona, approval=True)
+        msg = TXT["awaiting_trusted"][lang].format(n=g["name"], h=policy.POLICY["trusted_timeout_hours"])
+    else:
+        msg = TXT["awaiting_analyst"][lang]
+    tx["transcript"].append({"from": "bot", "text": msg})
+    saqshy.audit("Senim", "system", tx["status"], tx["id"], "score 80+ after the dialog")
+    return {"message": msg, "final": {"decision": tx["status"], "guardian_notified": bool(g),
+                                      "trusted": g["name"] if g else None}}
+
+
+@app.post("/api/verify/respond")
+def verify_respond(body: VerifyIn):
+    tx = TX.get(body.tx_id)
+    if not tx or tx["status"] != "verifying":
+        raise HTTPException(404, "no verification call for this transfer")
+    if body.answer not in VERIFY_DONE:
+        raise HTTPException(400, "answer must be self, not_me or no_answer")
+    if body.answer == "self" and saqshy.client(tx["persona"]).get("passkey_cred") and not tx.get("passkey_signed"):
+        raise HTTPException(403, "confirm the transfer with your passkey first")
+    lang = body.lang if body.lang in ("kk", "ru") else "kk"
+    pressed = {"self": {"kk": "1 — өзім жасап жатырмын", "ru": "1 — делаю сам"},
+               "not_me": {"kk": "2 — мен жасаған жоқпын", "ru": "2 — это не я"},
+               "no_answer": {"kk": "Қоңырауға жауап берілмеді", "ru": "Звонок без ответа"}}[body.answer][lang]
+    tx["transcript"].append({"from": "client", "text": pressed})
+    saqshy.audit(tx["client"], "client", "verify_" + body.answer, tx["id"], "bank verification call")
+    decision = {"self": "approved", "not_me": "cancelled", "no_answer": "delayed"}[body.answer]
+    cooling = tx.get("cooling")
+    if decision == "approved" and cooling:          # confirmed, but a new recipient / fresh loan still waits
+        decision = "delayed"
+    tx["status"] = decision
+    if decision == "delayed":
+        tx["delay_minutes"] = cooling["minutes"] if cooling and body.answer == "self" else 60
+    g = notify_guardian(tx, PERSONAS[tx["persona"]]) if decision != "approved" else None
+    msg = VERIFY_DONE[body.answer][lang]
+    if body.answer == "self" and cooling:
+        msg = TXT["cooling"][lang].format(m=cooling["minutes"])
+    tx["transcript"].append({"from": "bot", "text": msg})
+    return {"message": msg, "final": {"decision": decision, "delay_minutes": tx.get("delay_minutes"),
+                                      "guardian_notified": bool(g), "verified": body.answer == "self"}}
+
+
+NO_VISION = {"kk": "Скриншотты оқу үшін ЖИ қосылмаған. Хабарламаның мәтінін көшіріп қойыңыз.",
+             "ru": "Чтобы прочитать скриншот, нужен ИИ, а он не подключён. Скопируйте и вставьте текст сообщения."}
 
 
 @app.post("/api/message/check")
 def message_check(body: MessageIn):
     lang = body.lang if body.lang in ("kk", "ru") else "kk"
     text = body.text.strip()
-    if not text:
+    image = None
+    if body.image:
+        m = re.match(r"data:(image/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/=]+)$", body.image)
+        if not m or len(m.group(2)) > 7_000_000:
+            raise HTTPException(400, "a png, jpeg, webp or gif image up to 5 MB is expected")
+        if not llm.enabled_for_images():
+            raise HTTPException(503, NO_VISION[lang])
+        image = (m.group(1), m.group(2))
+    if not text and not image:
         raise HTTPException(400, "empty message")
-    base = message_rules(text, lang)
-    ai = llm.check_message(lang, text)
+    ai = llm.check_message(lang, text, image)
+    if image and not ai:
+        raise HTTPException(503, NO_VISION[lang])
+    # the rules also read what the screenshot says, so a fake domain or a dropper account on it is still caught
+    base = message_rules(" ".join(x for x in (text, ai.get("text", "") if ai else "") if x), lang)
     if not ai:
         return base
     order = ["safe", "suspicious", "scam"]
@@ -355,12 +675,63 @@ def message_check(body: MessageIn):
     verdict = max(ai["verdict"], base["verdict"], key=order.index)
     return {"verdict": verdict, "score": base["score"], "reasons": ai["reasons"] or base["reasons"],
             "advice": ai["advice"] if verdict == ai["verdict"] and ai["advice"] else MSG["advice"][verdict][lang],
-            "source": "llm"}
+            "source": "llm", "found": base["found"], "image_text": ai.get("text", "")}
 
 
 @app.get("/api/guardian/notifications")
-def guardian_notifications():
+def guardian_notifications(request: Request):
+    expire_approvals()
+    sess = getattr(request.state, "session", None)
+    if sess and sess.get("p"):                    # a client or trusted contact sees only their own family's
+        name = PERSONAS.get(sess["p"], {}).get("name")
+        return [n for n in NOTIFICATIONS if n["client"] == name]
     return NOTIFICATIONS
+
+
+@app.get("/api/client/history/{pid}")
+def client_history(pid: str):
+    """The client's own transfers, newest first (the dashboard is for analysts only)."""
+    p = persona_or_404(pid)
+    return sorted((t for t in TX.values() if t.get("live") and t["client"] == p["name"]), key=lambda t: t["time"], reverse=True)
+
+
+# ---------------------------------------------------------------- everyday banking (synthetic)
+class PayIn(BaseModel):
+    persona: str
+    kind: str                       # payment | purchase
+    amount: float
+    category: Optional[str] = None
+    provider: Optional[str] = None
+    account: Optional[str] = None
+    shop: Optional[str] = None
+
+
+def bank_state(p):
+    txs = [t for t in TX.values() if t.get("live") and t["client"] == p["name"]]
+    names = {r["account"]: r["name"] for r in RECIPIENTS}
+    return bank.state(p, saqshy.client(p["id"])["locked"], txs, names, saqshy.now())
+
+
+@app.get("/api/bank/catalogue")
+def bank_catalogue():
+    return bank.catalogue()
+
+
+@app.get("/api/bank/{pid}")
+def bank_get(pid: str):
+    """The client's card, deposits, accounts, spending by category and operations (newest first)."""
+    return bank_state(persona_or_404(pid))
+
+
+@app.post("/api/bank/pay")
+def bank_pay(body: PayIn):
+    p = persona_or_404(body.persona)
+    try:
+        op = bank.pay(p["id"], bank_state(p)["available"], body.kind, body.amount, saqshy.now(),
+                      category=body.category, provider=body.provider, account=body.account, shop=body.shop)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"operation": op, "bank": bank_state(p)}
 
 
 @app.post("/api/guardian/respond")
@@ -372,6 +743,8 @@ def guardian_respond(body: GuardianIn):
     tx["status"] = "approved" if body.action == "confirm" else "cancelled"
     n["state"] = tx["guardian"]["state"] = "confirmed" if body.action == "confirm" else "stopped"
     n["status"] = tx["status"]
+    saqshy.audit(n["guardian"], "trusted", "approved" if body.action == "confirm" else "rejected", tx["id"],
+                 "trusted contact decision")
     return n
 
 
@@ -384,15 +757,22 @@ def transfer(tx_id: str):
 
 @app.get("/api/dashboard")
 def dashboard():
+    expire_approvals()
     txs = sorted(TX.values(), key=lambda t: t["time"], reverse=True)
     paused = [t for t in txs if t["paused"]]
+    held = ("cancelled", "delayed", "awaiting_trusted", "awaiting_analyst")
+    done = [t for t in paused if t["status"] in ("approved", "cancelled")]
     return {
         "summary": {
             "checked": len(txs), "paused": len(paused),
             "cancelled": sum(t["status"] == "cancelled" for t in txs),
             "delayed": sum(t["status"] == "delayed" for t in txs),
-            "protected_amount": sum(t["amount"] for t in txs if t["status"] in ("cancelled", "delayed")),
+            "awaiting": sum(t["status"] in ("awaiting_trusted", "awaiting_analyst") for t in txs),
+            "protected_amount": sum(t["amount"] for t in txs if t["status"] in held),
+            # paused, then let through after checking: the friction honest clients paid
+            "false_positive_share": round(sum(t["status"] == "approved" for t in done) / len(done), 3) if done else 0,
         },
+        "adoption": saqshy.adoption(), "drop_list": list(saqshy.DROP_LIST.values()),
         "transactions": txs, "metrics": METRICS, "graph_quality": GRAPH["quality"], "llm": llm.enabled(),
     }
 
@@ -404,8 +784,378 @@ def graph():
 
 @app.post("/api/demo/reset")
 def reset():
+    saqshy.reset()
+    bank.reset()
+    saqshy.flag_from_graph(GRAPH["nodes"], policy.POLICY["auto_drop"])
+    sync_guardians()
     seed()
     return {"ok": True}
+
+
+# ---------------------------------------------------------------- Senim Saqshy: client protection
+class PersonaIn(BaseModel):
+    persona: str
+
+
+class TrustedIn(BaseModel):
+    persona: str
+    name: str
+    phone: str
+    relation_kk: str = "туысы"
+    relation_ru: str = "родственник"
+    other_bank: bool = False      # the trusted contact banks elsewhere: the request goes by SMS / eGov
+
+
+class LockIn(BaseModel):
+    persona: str
+    amount: float
+
+
+class UnlockIn(BaseModel):
+    persona: str
+    amount: float
+    channel: str                  # atm | branch
+    biometric: bool = False
+
+
+class SessionIn(BaseModel):
+    persona: str
+    staff_id: Optional[str] = None
+    line: Optional[str] = None      # the number the bank calls from; its official line by default
+
+
+class NameIn(BaseModel):
+    recipient_id: str
+    name: str
+
+
+class DecideIn(BaseModel):
+    tx_id: str
+    action: str                   # approve | reject | to_trusted
+    analyst: str = "Аналитик"
+    reason: str = ""
+
+
+class DropIn(BaseModel):
+    account: str
+    reason: str = ""
+    analyst: str = "Аналитик"
+
+
+class ClockIn(BaseModel):
+    hours: float
+
+
+def persona_or_404(pid):
+    if pid not in PERSONAS:
+        raise HTTPException(404, "unknown persona")
+    return PERSONAS[pid]
+
+
+def sync_guardians():
+    """The app's older 'guardian' view of a persona follows the trusted contact setting."""
+    for pid, p in PERSONAS.items():
+        g = saqshy.trusted_active(pid)
+        p["guardian"] = {"name": g["name"].split()[0], "relation": g["relation"]} if g else None
+
+
+def protection(pid):
+    p, c = persona_or_404(pid), saqshy.client(pid)
+    return {"persona": pid, "balance": p["balance"], "locked": c["locked"], "available": saqshy.available(pid, p["balance"]),
+            "passkey": bool(c["passkey"]), "passkey_device": bool(c.get("passkey_cred")), "trusted": c["trusted"] and c["trusted"] | {"phone": saqshy.mask_phone(c["trusted"]["phone"])},
+            "index": saqshy.security_index(c), "index_parts": saqshy.INDEX_POINTS, "call": saqshy.session(pid)}
+
+
+@app.get("/api/protect/{pid}")
+def protect_state(pid: str):
+    return protection(pid)
+
+
+@app.post("/api/protect/trusted/invite")
+def trusted_invite(body: TrustedIn):
+    persona_or_404(body.persona)
+    if len(body.name.strip()) < 2 or len(re.sub(r"\D", "", body.phone)) < 10:
+        raise HTTPException(400, "name and a full phone number are required")
+    saqshy.client(body.persona)["trusted"] = {
+        "name": body.name.strip(), "relation": {"kk": body.relation_kk, "ru": body.relation_ru}, "phone": body.phone,
+        "other_bank": body.other_bank, "state": "invited"}
+    saqshy.audit(PERSONAS[body.persona]["name"], "client", "trusted_invited", body.persona,
+                 f"{body.name} {body.phone} via {'sms' if body.other_bank else 'app'}")
+    sync_guardians()
+    return protection(body.persona)
+
+
+@app.post("/api/protect/trusted/accept")
+def trusted_accept(body: PersonaIn):
+    t = saqshy.client(body.persona).get("trusted")
+    if not t or t["state"] != "invited":
+        raise HTTPException(400, "no pending invitation")
+    t["state"] = "active"
+    saqshy.audit(t["name"], "trusted", "trusted_accepted", body.persona, "consent given")
+    sync_guardians()
+    return protection(body.persona)
+
+
+@app.post("/api/protect/trusted/remove")
+def trusted_remove(body: PersonaIn):
+    persona_or_404(body.persona)
+    saqshy.client(body.persona)["trusted"] = None
+    saqshy.audit(PERSONAS[body.persona]["name"], "client", "trusted_removed", body.persona)
+    sync_guardians()
+    return protection(body.persona)
+
+
+@app.post("/api/protect/lock")
+def lock(body: LockIn):
+    p = persona_or_404(body.persona)
+    c = saqshy.client(body.persona)
+    if body.amount < 0 or body.amount > p["balance"]:
+        raise HTTPException(400, "amount must be within the balance")
+    if body.amount < c["locked"]:
+        raise HTTPException(403, "money leaves the safe only at an ATM or a branch with biometrics")
+    c["locked"] = body.amount
+    saqshy.audit(p["name"], "client", "locked", body.persona, f"{body.amount:.0f}")
+    return protection(body.persona)
+
+
+@app.post("/api/protect/unlock")
+def unlock(body: UnlockIn):
+    """Simulates the ATM / branch: the safe opens only there and only after biometrics."""
+    p = persona_or_404(body.persona)
+    c = saqshy.client(body.persona)
+    if body.channel not in ("atm", "branch") or not body.biometric:
+        raise HTTPException(403, "the safe opens only at an ATM or a branch after biometrics")
+    c["locked"] = max(0, c["locked"] - body.amount)
+    saqshy.audit(p["name"], "client", "unlocked", body.persona, f"{body.amount:.0f} at {body.channel}, biometrics ok")
+    return protection(body.persona)
+
+
+@app.post("/api/callstatus/start")
+def call_start(body: SessionIn):
+    persona_or_404(body.persona)
+    st = saqshy.staff(body.staff_id or saqshy.SEED["staff"][0]["id"])
+    if not st:
+        raise HTTPException(404, "unknown staff id")
+    line = body.line or saqshy.SEED["call_status"]["bank_line"]
+    saqshy.SESSIONS[body.persona] = st | {"since": saqshy.now_iso(), "line": line}
+    saqshy.audit(st["name"], "staff", "call_started", body.persona, st["id"])
+    return saqshy.SESSIONS[body.persona]
+
+
+@app.post("/api/callstatus/end")
+def call_end(body: SessionIn):
+    st = saqshy.SESSIONS.pop(body.persona, None)
+    if st:
+        saqshy.audit(st["name"], "staff", "call_ended", body.persona, st["id"])
+    return {"ok": True}
+
+
+@app.get("/api/callstatus/{pid}")
+def call_status(pid: str, line: Optional[str] = None):
+    """'Is this really the bank?': an open staff session on the line the client is being called from means a real
+    bank call, with the employee's name and ID. Without `line` (the client asks from the app) any open session counts."""
+    persona_or_404(pid)
+    return saqshy.call_status(pid, line)
+
+
+@app.post("/api/recipient/check")
+def recipient_check(body: NameIn):
+    rec = next((r for r in RECIPIENTS if r["id"] == body.recipient_id), None)
+    if not rec:
+        raise HTTPException(404, "unknown recipient")
+    r = saqshy.name_check(rec["id"], body.name) or {"match": None, "owner_masked": None}
+    return r | {"drop_list": rec["account"] in saqshy.DROP_LIST}
+
+
+@app.post("/api/analyst/decide")
+def analyst_decide(body: DecideIn):
+    tx = TX.get(body.tx_id)
+    if not tx or tx["status"] not in ("awaiting_analyst", "awaiting_trusted", "in_dialog", "delayed", "verifying", "afc_hold"):
+        raise HTTPException(400, "this transfer is not waiting for a decision")
+    if body.action == "to_trusted":
+        g = notify_guardian(tx, PERSONAS[tx["persona"]], approval=True) if tx.get("persona") else None
+        if not g:
+            raise HTTPException(400, "the client has no active trusted contact")
+        tx["status"] = "awaiting_trusted"
+    elif body.action in ("approve", "reject"):
+        tx["status"] = "approved" if body.action == "approve" else "cancelled"
+        for n in NOTIFICATIONS:
+            if n["tx_id"] == tx["id"] and n["state"] == "open":
+                n["state"], n["status"] = "closed", tx["status"]
+    else:
+        raise HTTPException(400, "action must be approve, reject or to_trusted")
+    saqshy.audit(body.analyst, "analyst", body.action, tx["id"], body.reason)
+    return tx
+
+
+class ReportIn(BaseModel):
+    tx_id: str
+    analyst: str = "Аналитик"
+
+
+def add_business_days(start, n):
+    d = start
+    while n > 0:
+        d += timedelta(days=1)
+        if d.weekday() < 5:
+            n -= 1
+    return d
+
+
+@app.post("/api/analyst/report")
+def analyst_report(body: ReportIn):
+    """A case report for the National Bank's Antifraud Center. Demo format: the real schema is agreed with the
+    Center. No names, phone numbers or full account numbers: the client is a one-way hash, accounts stay masked."""
+    tx = TX.get(body.tx_id)
+    if not tx:
+        raise HTTPException(404, "unknown transfer")
+    rid = f"AFC-{saqshy.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
+    report = {
+        "schema": "senim-afc-demo/1", "report_id": rid, "created_at": saqshy.now_iso(), "reporter": body.analyst,
+        "transfer": {"id": tx["id"], "time": tx["time"], "amount": tx["amount"], "currency": "KZT",
+                     "recipient_account": tx["recipient"], "status": tx["status"]},
+        "client": {"ref": webauthn.b64u(webauthn.hashlib.sha256(tx["client"].encode()).digest())[:16], "age": tx.get("age")},
+        "risk": {"score": round(tx["risk"] * 100), "tier": tx.get("tier"), "signals": [
+            {"key": x["key"], "points": x["points"]} for x in tx.get("signals", [])]},
+        "scam_call_detected": bool(tx.get("scam_call")), "recipient_on_dropper_list": tx["recipient"] in saqshy.DROP_LIST,
+        "recipient_network": tx.get("drop_network"), "client_answers": [m["text"] for m in tx["transcript"] if m["from"] == "client"],
+        "requested_action": "review and hold the recipient account",
+    }
+    tx["reported"] = rid
+    days = policy.POLICY["afc"]["hold_business_days"]
+    if tx["status"] not in ("approved",):              # not sent yet: hold it while the Center reviews the case
+        tx["status"] = "afc_hold"
+        tx["hold_until"] = add_business_days(saqshy.now(), days).date().isoformat()
+        report["hold"] = {"business_days": days, "until": tx["hold_until"]}
+        saqshy.audit("Senim", "system", "afc_hold", tx["id"], f"{days} business days, until {tx['hold_until']}")
+    saqshy.audit(body.analyst, "analyst", "reported", tx["id"], rid)
+    return report
+
+
+@app.post("/api/analyst/droplist")
+def droplist_add(body: DropIn):
+    if not body.account.strip():
+        raise HTTPException(400, "account is required")
+    saqshy.DROP_LIST[body.account] = {"account": body.account, "reason": body.reason, "by": body.analyst, "time": saqshy.now_iso()}
+    saqshy.audit(body.analyst, "analyst", "droplist_added", body.account, body.reason)
+    return list(saqshy.DROP_LIST.values())
+
+
+class PasskeyBeginIn(BaseModel):
+    persona: str
+
+
+class PasskeyFinishIn(BaseModel):
+    persona: str
+    credential_id: str
+    public_key: str           # SPKI, base64url (response.getPublicKey())
+    alg: int
+    client_data_json: str
+
+
+class PasskeyTxIn(BaseModel):
+    tx_id: str
+
+
+class PasskeyAssertIn(BaseModel):
+    tx_id: str
+    credential_id: str
+    authenticator_data: str
+    client_data_json: str
+    signature: str
+
+
+REG_CHALLENGES = {}
+
+
+def rp_id_of(request: Request):
+    origin = request.headers.get("origin") or ""
+    host = origin.split("://")[-1] if origin else request.headers.get("host", "")
+    return host.split(":")[0]
+
+
+@app.post("/api/passkey/register/begin")
+def passkey_begin(body: PasskeyBeginIn):
+    p = persona_or_404(body.persona)
+    REG_CHALLENGES[body.persona] = uuid.uuid4().bytes + uuid.uuid4().bytes
+    return {"challenge": webauthn.b64u(REG_CHALLENGES[body.persona]), "rp_name": "Senim",
+            "user_id": webauthn.b64u(body.persona.encode()), "user_name": p["name"]}
+
+
+@app.post("/api/passkey/register/finish")
+def passkey_finish(body: PasskeyFinishIn, request: Request):
+    persona_or_404(body.persona)
+    challenge = REG_CHALLENGES.pop(body.persona, None)
+    if not challenge:
+        raise HTTPException(400, "start the registration first")
+    try:
+        webauthn.verify_registration(body.client_data_json, challenge, rp_id_of(request), body.public_key, body.alg)
+    except (webauthn.PasskeyError, ValueError) as e:
+        raise HTTPException(400, f"passkey not accepted: {e}") from e
+    c = saqshy.client(body.persona)
+    c["passkey"], c["passkey_cred"] = True, {"id": body.credential_id, "public_key": body.public_key, "alg": body.alg}
+    saqshy.audit(PERSONAS[body.persona]["name"], "client", "passkey_added", body.persona)
+    return protection(body.persona)
+
+
+@app.post("/api/passkey/challenge")
+def passkey_challenge(body: PasskeyTxIn):
+    """What the client signs: the transfer's own details (amount, recipient, id), not a code."""
+    tx = TX.get(body.tx_id)
+    if not tx or not tx.get("persona"):
+        raise HTTPException(404, "unknown transfer")
+    cred = saqshy.client(tx["persona"]).get("passkey_cred")
+    if not cred:
+        return {"required": False}
+    details = {"tx": tx["id"], "amount": int(tx["amount"]), "recipient": tx["recipient"], "nonce": uuid.uuid4().hex[:12]}
+    tx["passkey_details"] = details
+    return {"required": True, "challenge": webauthn.b64u(webauthn.tx_challenge(details)),
+            "credential_ids": [cred["id"]], "details": details}
+
+
+@app.post("/api/passkey/verify")
+def passkey_verify(body: PasskeyAssertIn, request: Request):
+    tx = TX.get(body.tx_id)
+    if not tx or not tx.get("passkey_details"):
+        raise HTTPException(400, "ask for a challenge first")
+    cred = saqshy.client(tx["persona"]).get("passkey_cred")
+    if not cred or body.credential_id != cred["id"]:
+        raise HTTPException(403, "unknown passkey")
+    try:
+        r = webauthn.verify_assertion(cred["public_key"], cred["alg"], body.authenticator_data, body.client_data_json,
+                                      body.signature, webauthn.tx_challenge(tx["passkey_details"]), rp_id_of(request))
+    except (webauthn.PasskeyError, ValueError) as e:
+        saqshy.audit(tx["client"], "client", "passkey_failed", tx["id"], str(e))
+        raise HTTPException(403, f"passkey check failed: {e}") from e
+    tx["passkey_signed"] = True
+    saqshy.audit(tx["client"], "client", "passkey_signed", tx["id"],
+                 f"{tx['passkey_details']['amount']} -> {tx['recipient']}, user verified: {r['user_verified']}")
+    return {"ok": True, **r}
+
+
+@app.get("/api/audit")
+def audit_log():
+    return saqshy.AUDIT[:200]
+
+
+@app.post("/api/demo/clock")
+def demo_clock(body: ClockIn):
+    """Moves the demo clock forward, e.g. 24 hours to show what happens when the trusted contact stays silent."""
+    saqshy.CLOCK["offset_hours"] += max(0.0, body.hours)
+    expire_approvals()
+    return {"offset_hours": saqshy.CLOCK["offset_hours"], "now": saqshy.now_iso()}
+
+
+sync_guardians()
+saqshy.flag_from_graph(GRAPH["nodes"], policy.POLICY["auto_drop"])
+
+
+def senders_last_hour(rec):
+    """Distinct people whose money reached this account in the last hour: the seed's history plus live transfers."""
+    since = saqshy.now() - timedelta(hours=1)
+    live = {t["client"] for t in TX.values() if t.get("live") and t["recipient"] == rec["account"] and t["status"] == "approved"
+            and datetime.fromisoformat(t["time"]) >= since}
+    return saqshy.SEED["senders_last_hour"].get(rec["id"], 0) + len(live)
 
 
 DIST = HERE.parent / "frontend" / "dist"

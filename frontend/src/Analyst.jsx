@@ -1,154 +1,208 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Network } from "vis-network";
-import { DataSet } from "vis-data";
+import React, { useEffect, useState } from "react";
 import { api, fmt } from "./i18n.js";
-import { Factors, RiskBadge } from "./Client.jsx";
+import PhoneFrame, { TabBar } from "./phone/PhoneFrame.jsx";
+import AnalystApp, { ROLE_COLOR } from "./phone/AnalystApp.jsx";
+import { AN } from "./phone/analystStrings.js";
+import { SH } from "./shell.js";
+import { runFederated, FALSE_PAUSE } from "./virtual/federated.js";
 
-const ROLE_COLOR = { drop: "#c8372d", cashout: "#7a1f3d", victim: "#e0a526", normal: "#b9c0cc" };
+const PAGE = {
+  kk: {
+    title: "Аналитик не көреді",
+    lead: "Банктің антифрод қызметкері әр тоқтатылған аударымды телефонынан тексереді: модель неге күдіктенді, клиент диалогта не деді, ақша қай желіге кетпек болды.",
+    steps: ["«Клиент қосымшасы» бөлімінде күдікті аударым жасаңыз.", "«Кезек» табында ол бірнеше секундта пайда болады.", "Аударымды ашып, тәуекелді көтерген белгілерді қараңыз.", "«Желі» табында дроп-шоттарды басып, деректерін көріңіз."],
+    synth: "Аударымдар, шоттар және граф синтетикалық. Модель сапасы тест жинағында есептелген.",
+    netTitle: "Табылған дроп-желілер",
+    netLead: "Граф ақша кіріп, жарты сағатқа жетпей шығып кететін шоттарды тізбекке біріктіреді.",
+    total: (v) => `Жалпы айналым: ${v} ₸`,
+    console: "Банк қызметкерінің пульті", consoleHint: "Демо: банк жағындағы әрекеттерді осы жерден жасаңыз.",
+    client: "Клиент", staff: "Қызметкер", startCall: "Клиентке қоңырау шалу (Call Status)", endCall: "Қоңырауды аяқтау",
+    inCall: (n, id, c) => `${n} (ID ${id}) қазір ${c} клиентпен сөйлесіп тұр`,
+    atm: "Банкомат: сейфті биометриямен ашу", atmDone: (a) => `Сейф ашылды, ${a} ₸ қолжетімді болды`, atmEmpty: "Сейф бос",
+    clock: "Уақытты 24 сағатқа жылжыту", clockDone: "Уақыт жылжыды: жауап бермеген сенімді адамның сұраулары жабылды",
+    fed: "Банкаралық федеративтік оқыту", fedLead: "Үш банктің әрқайсысы алаяқтықтың бір түрін ғана көреді. Олар клиент деректерін алмаспай-ақ ортақ модель үйретеді: әр банк моделін өзінде оқытады, ал үйлестірушіге тек модель салмақтары жіберіледі (FedAvg).",
+    fedRun: "Оқытуды бастау (5 раунд)", fedModel: "Модель", fedSchemes: { call: "Қоңырау", remote: "Қашықтан басқару", drop: "Дроп-шот" },
+    fedLocal: (b) => `${b}-банк, тек өз деректері`, fedGlobal: "Ортақ модель",
+    fedCaption: (p) => `Ұсталған алаяқтық үлесі, әр модель адал аударымдардың ${p}%-ын ғана кідіртеді. AUC — жалпы сапа.`,
+    fedSent: (m, d, n) => `Банктерден жіберілгені: ${m} хабар, әрқайсысында ${d} сан. ${n} клиент жазбасы банктен шыққан жоқ.`,
+    fedNote: "Деректер жасанды, есептеу браузерде жүреді. Нақты пилотта салмақтар шифрланып біріктіріледі (secure aggregation), дифференциалды құпиялылық қосылады.",
+  },
+  ru: {
+    title: "Что видит аналитик",
+    lead: "Сотрудник антифрода проверяет каждый остановленный перевод с телефона: почему модель насторожилась, что клиент ответил в диалоге и в какую сеть уходили деньги.",
+    steps: ["Сделайте подозрительный перевод в разделе «Приложение клиента».", "Через несколько секунд он появится во вкладке «Очередь».", "Откройте перевод и посмотрите, какие признаки подняли риск.", "Во вкладке «Сеть» нажмите на дроп-счёт, чтобы увидеть его данные."],
+    synth: "Переводы, счета и граф синтетические. Качество модели посчитано на тестовой выборке.",
+    netTitle: "Найденные дроп-сети",
+    netLead: "Граф связывает в цепочки счета, через которые деньги проходят меньше чем за полчаса.",
+    total: (v) => `Общий оборот: ${v} ₸`,
+    console: "Пульт сотрудника банка", consoleHint: "Демо: действия на стороне банка выполняются здесь.",
+    client: "Клиент", staff: "Сотрудник", startCall: "Позвонить клиенту (Call Status)", endCall: "Завершить звонок",
+    inCall: (n, id, c) => `${n} (ID ${id}) сейчас разговаривает с клиентом ${c}`,
+    atm: "Банкомат: открыть сейф по биометрии", atmDone: (a) => `Сейф открыт, доступно ${a} ₸`, atmEmpty: "Сейф пуст",
+    clock: "Сдвинуть время на 24 часа", clockDone: "Время сдвинуто: неотвеченные запросы доверенному лицу закрыты",
+    fed: "Федеративное обучение между банками", fedLead: "Каждый из трёх банков видит только одну схему мошенничества. Они обучают общую модель, не обмениваясь данными клиентов: каждый банк учит модель у себя, а координатору уходят только веса модели (FedAvg).",
+    fedRun: "Запустить обучение (5 раундов)", fedModel: "Модель", fedSchemes: { call: "Звонок", remote: "Удалённый доступ", drop: "Дроп-счёт" },
+    fedLocal: (b) => `Банк ${b}, только свои данные`, fedGlobal: "Общая модель",
+    fedCaption: (p) => `Доля пойманного мошенничества, когда модель задерживает только ${p}% честных переводов. AUC — общее качество.`,
+    fedSent: (m, d, n) => `Из банков отправлено: ${m} сообщений по ${d} чисел. ${n} записей клиентов не покинули банки.`,
+    fedNote: "Данные синтетические, расчёт идёт в браузере. В настоящем пилоте веса объединяются в зашифрованном виде (secure aggregation) и добавляется дифференциальная приватность.",
+  },
+};
 
-function Graph({ data, showAll, onPick }) {
-  const el = useRef(null);
-  useEffect(() => {
-    if (!data || !el.current) return;
-    const ink = getComputedStyle(document.documentElement).getPropertyValue("--ink").trim() || "#14213d";
-    const keep = new Set(data.nodes.filter((n) => showAll || n.role !== "normal").map((n) => n.id));
-    const nodes = new DataSet(data.nodes.filter((n) => keep.has(n.id)).map((n) => ({
-      id: n.id, label: n.role === "normal" ? "" : n.id.slice(-4),
-      color: { background: ROLE_COLOR[n.role], border: "#fff", highlight: { background: ROLE_COLOR[n.role], border: ink } },
-      size: n.role === "normal" ? 6 : n.role === "victim" ? 10 : 12 + n.score * 14,
-      font: { color: ink, size: 11, face: "Golos Text" },
-    })));
-    const edges = new DataSet(data.edges.filter((e) => keep.has(e.from) && keep.has(e.to) && (showAll || e.suspicious)).map((e, i) => ({
-      id: i, from: e.from, to: e.to, arrows: { to: { enabled: true, scaleFactor: 0.5 } },
-      width: e.suspicious ? 1 + Math.min(e.amount / 600000, 4) : 0.5,
-      color: { color: e.suspicious ? "rgba(200,55,45,.55)" : "rgba(120,130,150,.25)" },
-      title: `${fmt(e.amount)} ₸`,
-    })));
-    const net = new Network(el.current, { nodes, edges }, {
-      nodes: { shape: "dot", borderWidth: 1.5 },
-      physics: { solver: "forceAtlas2Based", forceAtlas2Based: { gravitationalConstant: -38, springLength: 70 }, stabilization: { iterations: 180 } },
-      interaction: { hover: true, tooltipDelay: 100 },
-    });
-    net.on("click", (p) => onPick(p.nodes[0] ? data.nodes.find((n) => n.id === p.nodes[0]) : null));
-    return () => net.destroy();
-  }, [data, showAll]);
-  return <div className="graph" ref={el} />;
+function Federated({ G }) {
+  const [r, setR] = useState(null);
+  const pct = (v) => `${Math.round(v * 100)}%`;
+  const cell = (v) => <td className={"num " + (v >= 0.8 ? "good" : v < 0.5 ? "bad" : "")}>{pct(v)}</td>;
+  return (
+    <div className="panel bcard fed">
+      <h2>{G.fed}</h2>
+      <p className="hint">{G.fedLead}</p>
+      <button className="primary" onClick={() => setR(runFederated())}>{G.fedRun}</button>
+      {r && (
+        <>
+          <table className="fed-table">
+            <thead><tr><th>{G.fedModel}</th>{Object.values(G.fedSchemes).map((s) => <th key={s} className="num">{s}</th>)}<th className="num">AUC</th></tr></thead>
+            <tbody>
+              {r.local.map((l) => <tr key={l.name}><td>{G.fedLocal(l.name)}</td>{Object.keys(G.fedSchemes).map((k) => <React.Fragment key={k}>{cell(l.caught[k])}</React.Fragment>)}<td className="num">{l.auc.toFixed(2)}</td></tr>)}
+              <tr className="fed-global"><td>{G.fedGlobal}</td>{Object.keys(G.fedSchemes).map((k) => <React.Fragment key={k}>{cell(r.federated.caught[k])}</React.Fragment>)}<td className="num">{r.federated.auc.toFixed(2)}</td></tr>
+            </tbody>
+          </table>
+          <p className="hint small">{G.fedCaption(Math.round(FALSE_PAUSE * 100))}</p>
+          <p className="hint">{G.fedSent(r.sent.length, r.weightsPerMessage, r.records)}</p>
+          <p className="hint small">{G.fedNote}</p>
+        </>
+      )}
+    </div>
+  );
 }
 
-export default function Analyst({ lang, t }) {
+function StaffConsole({ boot, G }) {
+  const personas = boot?.personas || [];
+  const [pid, setPid] = useState(personas[0]?.id || "aigul");
+  const [sid, setSid] = useState("BK-2041");
+  const [call, setCall] = useState(null);
+  const [note, setNote] = useState("");
+  const staffList = boot?.staff || [];
+  const refresh = () => api(`/api/callstatus/${pid}`, undefined, "staff").then(setCall).catch(() => {});
+  useEffect(() => { refresh(); setNote(""); }, [pid]);
+  const who = personas.find((p) => p.id === pid)?.name || pid;
+  return (
+    <div className="panel bcard staff-console">
+      <h2>{G.console}</h2>
+      <p className="hint">{G.consoleHint}</p>
+      <label className="field">{G.client}
+        <select value={pid} onChange={(e) => setPid(e.target.value)}>{personas.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+      </label>
+      <label className="field">{G.staff}
+        <select value={sid} onChange={(e) => setSid(e.target.value)}>{staffList.map((s) => <option key={s.id} value={s.id}>{s.name} · {s.id}</option>)}</select>
+      </label>
+      {call?.active ? (
+        <>
+          <p className="console-live">{G.inCall(call.staff.name, call.staff.id, who)}</p>
+          <button className="ghost" onClick={async () => { await api("/api/callstatus/end", { persona: pid }); refresh(); }}>{G.endCall}</button>
+        </>
+      ) : <button className="primary" onClick={async () => { await api("/api/callstatus/start", { persona: pid, staff_id: sid }); refresh(); }}>{G.startCall}</button>}
+      <button className="ghost" onClick={async () => {
+        const st = await api(`/api/protect/${pid}`, undefined, "staff");
+        if (!st.locked) return setNote(G.atmEmpty);
+        const r = await api("/api/protect/unlock", { persona: pid, amount: st.locked, channel: "atm", biometric: true });
+        setNote(G.atmDone(fmt(r.available)));
+      }}>{G.atm}</button>
+      <button className="ghost" onClick={async () => { await api("/api/demo/clock", { hours: 24 }); setNote(G.clockDone); }}>{G.clock}</button>
+      {note && <p className="hint" role="status">{note}</p>}
+    </div>
+  );
+}
+
+export default function Analyst({ lang, t, boot }) {
   const [dash, setDash] = useState(null);
   const [graph, setGraph] = useState(null);
-  const [sel, setSel] = useState(null);
-  const [node, setNode] = useState(null);
-  const [showAll, setShowAll] = useState(false);
+  const [audit, setAudit] = useState([]);
+  const [tab, setTab] = useState("overview");
+  const [notice, setNotice] = useState("");
+  const A = AN[lang], G = PAGE[lang];
 
+  const load = () => {
+    api("/api/dashboard").then(setDash).catch(() => {});
+    api("/api/audit").then(setAudit).catch(() => {});
+  };
   useEffect(() => {
-    const load = () => api("/api/dashboard").then(setDash).catch(() => {});
-    load(); api("/api/graph").then(setGraph);
+    load(); api("/api/graph").then(setGraph).catch(() => {});
     const i = setInterval(load, 4000);
     return () => clearInterval(i);
   }, []);
+  const decide = async (tx_id, action) => {
+    setNotice("");
+    try { await api("/api/analyst/decide", { tx_id, action, analyst: "Аналитик" }); setNotice(A.decided); }
+    catch (e) { setNotice(String(e.message)); }
+    load();
+  };
+  const report = async (tx_id) => { const r = await api("/api/analyst/report", { tx_id, analyst: "Аналитик" }); load(); return r; };
+  const drop = async (account) => { await api("/api/analyst/droplist", { account, reason: A.dropReason, analyst: "Аналитик" }); load(); };
 
-  const tx = useMemo(() => dash?.transactions.find((x) => x.id === sel) || dash?.transactions.find((x) => x.paused), [dash, sel]);
-  if (!dash) return null;
-  const s = dash.summary, m = dash.metrics;
+  const tabs = [
+    { id: "overview", icon: "shield", label: A.tabs.overview },
+    { id: "queue", icon: "clock", label: A.tabs.queue },
+    { id: "network", icon: "bank", label: A.tabs.network },
+    { id: "audit", icon: "message", label: A.tabs.audit },
+  ];
+  const volume = graph ? graph.networks.reduce((a, n) => a + n.volume, 0) : 0;
+
+  const S = SH[lang].an;
+  const sum = dash?.summary;
+  const kpis = sum ? [
+    ["checked", sum.checked, ""], ["paused", sum.paused, "amber"], ["cancelled", sum.cancelled, "red"],
+    ["awaiting", sum.awaiting, "amber"], ["saved", `${fmt(sum.protected_amount)} ₸`, "green"], ["fp", `${Math.round(sum.false_positive_share * 100)}%`, ""],
+  ] : [];
 
   return (
-    <main className="analyst">
-      <section className="kpis">
-        <div className="kpi"><span>{t.kChecked}</span><b>{s.checked}</b></div>
-        <div className="kpi"><span>{t.kPaused}</span><b>{s.paused}</b></div>
-        <div className="kpi"><span>{t.kStopped}</span><b>{s.cancelled} / {s.delayed}</b></div>
-        <div className="kpi accent"><span>{t.kProtected}</span><b>{fmt(s.protected_amount)} ₸</b></div>
-        <div className="kpi wide">
-          <span>{t.kModel} · {t.synthetic}</span>
-          <div className="mrow">
-            <div><b>{m.roc_auc.toFixed(3)}</b><small>ROC-AUC</small></div>
-            <div><b>{Math.round(m.recall_at_pause * 100)}%</b><small>{t.recallNote}</small></div>
-            <div><b>{(m.false_pause_share * 100).toFixed(2)}%</b><small>{t.falseNote}</small></div>
-          </div>
+    <div className="shell analyst-shell analyst-view">
+      <main className="board">
+        <header className="an-head">
+          <h1>{S.title}</h1>
+          <p>{S.sub}</p>
+        </header>
+        <nav className="pills" aria-label={S.phoneCap}>
+          {tabs.map((x) => <button key={x.id} className={tab === x.id ? "on" : ""} aria-pressed={tab === x.id} onClick={() => setTab(x.id)}>{x.label}</button>)}
+        </nav>
+        <div className="kpi-strip">
+          {kpis.map(([k, v, tone]) => <div key={k} className="kpi-x"><small>{S.kpi[k]}</small><b className={tone}>{v}</b></div>)}
         </div>
-      </section>
+        <div className="board-grid">
+          <section className="bcard">
+            <h2>{S.how}</h2>
+            <p className="hint">{G.lead}</p>
+            <ol className="how">{G.steps.map((x, i) => <li key={i}>{x}</li>)}</ol>
+            <p className="hint small">{G.synth}</p>
+          </section>
+          <StaffConsole boot={boot} G={G} />
+          <div className="bcard-wide"><Federated G={G} /></div>
+          <section className="bcard bcard-wide">
+            <h2>{G.netTitle}</h2>
+            <p className="hint">{G.netLead}</p>
+            {graph && (
+              <>
+                <ul className="net-sum">
+                  {graph.networks.map((n) => (
+                    <li key={n.id}><b>{t.net} {n.id}</b><span>{n.size} {t.accounts}, {n.victims} {t.victims}</span><b className="num">{fmt(n.volume)} ₸</b></li>
+                  ))}
+                </ul>
+                <p className="hint">{G.total(fmt(volume))}</p>
+                <div className="legend">{Object.keys(ROLE_COLOR).map((r) => <span key={r}><i style={{ background: ROLE_COLOR[r] }} />{t.role[r]}</span>)}</div>
+              </>
+            )}
+          </section>
+        </div>
+      </main>
 
-      <section className="grid2">
-        <div className="panel feed">
-          <h2>{t.feed}</h2>
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>{t.time}</th><th>{t.client}</th><th className="num">₸</th><th>{t.recipient}</th><th>{t.risk}</th><th>{t.status}</th></tr></thead>
-              <tbody>
-                {dash.transactions.map((x) => (
-                  <tr key={x.id} className={(tx && tx.id === x.id ? "sel " : "") + (x.live ? "live" : "")} onClick={() => setSel(x.id)}>
-                    <td>{x.time.slice(11, 16)}</td>
-                    <td>{x.client}{x.live && <span className="tag">{t.live}</span>}</td>
-                    <td className="num">{fmt(x.amount)}</td>
-                    <td>{x.recipient}</td>
-                    <td><span className="mini"><i className={x.level} style={{ width: `${Math.max(x.risk * 100, 3)}%` }} /></span>{Math.round(x.risk * 100)}%</td>
-                    <td><span className={"st " + x.status}>{t.st[x.status]}</span></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      <section className="sphone" aria-label={S.phoneCap}>
+        <div className="sphone-cap"><b>{S.phoneCap}</b><small>{S.phoneHint}</small></div>
+        <PhoneFrame tone="light" tabBar={<TabBar tabs={tabs} active={tab} onChange={setTab} />}>
+          <div className="analyst-app" key={tab}>
+            <AnalystApp tab={tab} dash={dash} graph={graph} lang={lang} t={t} A={A} audit={audit} onDecide={decide} onDrop={drop} notice={notice} onReport={report} />
           </div>
-        </div>
-        <div className="panel">
-          <h2>{t.why}</h2>
-          {tx ? (
-            <>
-              <p className="hint">{t.whyHint}</p>
-              <div className="risk-row">
-                <span>{tx.id} · {tx.client}, {tx.age} · {fmt(tx.amount)} ₸</span>
-                <RiskBadge risk={tx.risk} level={tx.level} t={t} />
-              </div>
-              <Factors factors={tx.factors} lang={lang} t={t} />
-              {tx.guardian && <p><span className="tag">{t.guardianBadge}: {tx.guardian.name}</span></p>}
-              {tx.transcript.length > 0 && (
-                <>
-                  <h3>{t.transcript}</h3>
-                  <div className="chat small">
-                    {tx.transcript.map((mm, i) => <div key={i} className={"msg " + mm.from}>{mm.text}</div>)}
-                  </div>
-                </>
-              )}
-            </>
-          ) : <p className="hint">{t.pick}</p>}
-        </div>
+        </PhoneFrame>
       </section>
-
-      <section className="grid2 graph-row">
-        <div className="panel">
-          <div className="head-row">
-            <div><h2>{t.graph}</h2><p className="hint">{t.graphHint}</p></div>
-            <label className="check"><input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />{t.showAll}</label>
-          </div>
-          <Graph data={graph} showAll={showAll} onPick={setNode} />
-          <div className="legend">
-            {Object.keys(ROLE_COLOR).map((r) => <span key={r}><i style={{ background: ROLE_COLOR[r] }} />{t.role[r]}</span>)}
-          </div>
-        </div>
-        <div className="panel">
-          <h2>{t.networks}</h2>
-          {graph?.networks.map((n) => (
-            <div key={n.id} className="netcard">
-              <b>{t.net} №{n.id}</b>
-              <span>{n.size} {t.accounts} · {n.victims} {t.victims}</span>
-              <span>{t.volume}: <b>{fmt(n.volume)} ₸</b></span>
-              <span>{t.hold}: ~{Math.round(n.avg_hold_min)} {t.min}</span>
-            </div>
-          ))}
-          <h3>{t.node}</h3>
-          {node ? (
-            <dl className="node">
-              <dt>{node.id}</dt><dd><span className={"st " + (node.role === "normal" ? "approved" : node.role === "victim" ? "delayed" : "cancelled")}>{t.role[node.role]}</span></dd>
-              <dt>{t.score}</dt><dd>{node.score.toFixed(2)}</dd>
-              <dt>{t.passthrough}</dt><dd>{Math.round(node.passthrough * 100)}%</dd>
-              <dt>{t.hold}</dt><dd>{node.hold_min == null ? "—" : `${Math.round(node.hold_min)} ${t.min}`}</dd>
-              <dt>{t.ageDays}</dt><dd>{node.age_days}</dd>
-              <dt>{t.fanIn}</dt><dd>{node.fan_in}</dd>
-            </dl>
-          ) : <p className="hint">{t.nodePick}</p>}
-        </div>
-      </section>
-    </main>
+    </div>
   );
 }
